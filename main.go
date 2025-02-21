@@ -20,6 +20,7 @@ import (
 	"github.com/fosrl/newt/logger"
 	"github.com/fosrl/newt/proxy"
 	"github.com/fosrl/newt/websocket"
+	"github.com/fosrl/newt/wg"
 
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
@@ -246,15 +247,18 @@ func resolveDomain(domain string) (string, error) {
 
 func main() {
 	var (
-		endpoint   string
-		id         string
-		secret     string
-		mtu        string
-		mtuInt     int
-		dns        string
-		privateKey wgtypes.Key
-		err        error
-		logLevel   string
+		endpoint             string
+		id                   string
+		secret               string
+		mtu                  string
+		mtuInt               int
+		dns                  string
+		privateKey           wgtypes.Key
+		err                  error
+		logLevel             string
+		interfaceName        string
+		generateAndSaveKeyTo string
+		reachableAt          string
 	)
 
 	// if PANGOLIN_ENDPOINT, NEWT_ID, and NEWT_SECRET are set as environment variables, they will be used as default values
@@ -264,6 +268,9 @@ func main() {
 	mtu = os.Getenv("MTU")
 	dns = os.Getenv("DNS")
 	logLevel = os.Getenv("LOG_LEVEL")
+	interfaceName = os.Getenv("INTERFACE")
+	generateAndSaveKeyTo = os.Getenv("GENERATE_AND_SAVE_KEY_TO")
+	reachableAt = os.Getenv("REACHABLE_AT")
 
 	if endpoint == "" {
 		flag.StringVar(&endpoint, "endpoint", "", "Endpoint of your pangolin server")
@@ -282,6 +289,15 @@ func main() {
 	}
 	if logLevel == "" {
 		flag.StringVar(&logLevel, "log-level", "INFO", "Log level (DEBUG, INFO, WARN, ERROR, FATAL)")
+	}
+	if interfaceName == "" {
+		flag.StringVar(&interfaceName, "interface", "wg-1", "Name of the WireGuard interface")
+	}
+	if generateAndSaveKeyTo == "" {
+		flag.StringVar(&generateAndSaveKeyTo, "generateAndSaveKeyTo", "", "Path to save generated private key")
+	}
+	if reachableAt == "" {
+		flag.StringVar(&reachableAt, "reachableAt", "", "Endpoint of the http server to tell remote config about")
 	}
 
 	// do a --version check
@@ -318,6 +334,21 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to create client: %v", err)
 	}
+
+	// Create WireGuard service
+	wgService, err := wg.NewWireGuardService(interfaceName, mtuInt, reachableAt, generateAndSaveKeyTo, client)
+	if err != nil {
+		logger.Fatal("Failed to create WireGuard service: %v", err)
+	}
+	// defer wgService.Close()
+
+	// Start the WireGuard service
+	if err := wgService.Start(); err != nil {
+		logger.Fatal("Failed to start WireGuard service: %v", err)
+	}
+
+	// Start bandwidth reporting
+	wgService.StartBandwidthReporting()
 
 	// Create TUN device and network stack
 	var tun tun.Device
