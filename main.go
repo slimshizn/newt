@@ -340,15 +340,7 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to create WireGuard service: %v", err)
 	}
-	// defer wgService.Close()
-
-	// Start the WireGuard service
-	if err := wgService.Start(); err != nil {
-		logger.Fatal("Failed to start WireGuard service: %v", err)
-	}
-
-	// Start bandwidth reporting
-	wgService.StartBandwidthReporting()
+	defer wgService.Close()
 
 	// Create TUN device and network stack
 	var tun tun.Device
