@@ -16,7 +16,6 @@ import (
 )
 
 type WgConfig struct {
-	PrivateKey string `json:"privateKey"`
 	ListenPort int    `json:"listenPort"`
 	IpAddress  string `json:"ipAddress"`
 	Peers      []Peer `json:"peers"`
@@ -125,7 +124,7 @@ func (s *WireGuardService) LoadRemoteConfig() error {
 func (s *WireGuardService) handleConfig(msg websocket.WSMessage) {
 	var config WgConfig
 
-	logger.Info("Received WireGuard configuration")
+	logger.Info("Received message: %v", msg)
 
 	jsonData, err := json.Marshal(msg.Data)
 	if err != nil {
@@ -137,9 +136,7 @@ func (s *WireGuardService) handleConfig(msg websocket.WSMessage) {
 		logger.Info("Error unmarshaling target data: %v", err)
 		return
 	}
-
 	s.config = config
-	logger.Info("Config: %v", s.config)
 
 	// Ensure the WireGuard interface and peers are configured
 	if err := s.ensureWireguardInterface(config); err != nil {
@@ -184,7 +181,7 @@ func (s *WireGuardService) ensureWireguardInterface(wgconfig WgConfig) error {
 	}
 
 	// Parse the private key
-	key, err := wgtypes.ParseKey(wgconfig.PrivateKey)
+	key, err := wgtypes.ParseKey(s.key.String())
 	if err != nil {
 		return fmt.Errorf("failed to parse private key: %v", err)
 	}
