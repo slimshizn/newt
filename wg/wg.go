@@ -125,16 +125,21 @@ func (s *WireGuardService) LoadRemoteConfig() error {
 func (s *WireGuardService) handleConfig(msg websocket.WSMessage) {
 	var config WgConfig
 
+	logger.Info("Received WireGuard configuration")
+
 	jsonData, err := json.Marshal(msg.Data)
 	if err != nil {
 		logger.Info("Error marshaling data: %v", err)
+		return
 	}
 
 	if err := json.Unmarshal(jsonData, &config); err != nil {
 		logger.Info("Error unmarshaling target data: %v", err)
+		return
 	}
 
 	s.config = config
+	logger.Info("Config: %v", s.config)
 
 	// Ensure the WireGuard interface and peers are configured
 	if err := s.ensureWireguardInterface(config); err != nil {
@@ -165,12 +170,12 @@ func (s *WireGuardService) ensureWireguardInterface(wgconfig WgConfig) error {
 		return nil
 	}
 
+	logger.Info("Assigning IP address %s to interface %s\n", wgconfig.IpAddress, s.interfaceName)
 	// Assign IP address to the interface
 	err = s.assignIPAddress(wgconfig.IpAddress)
 	if err != nil {
 		logger.Fatal("Failed to assign IP address: %v", err)
 	}
-	logger.Info("Assigned IP address %s to interface %s\n", wgconfig.IpAddress, s.interfaceName)
 
 	// Check if the interface already exists
 	_, err = s.wgClient.Device(s.interfaceName)
