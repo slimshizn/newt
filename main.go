@@ -291,7 +291,7 @@ func main() {
 		flag.StringVar(&logLevel, "log-level", "INFO", "Log level (DEBUG, INFO, WARN, ERROR, FATAL)")
 	}
 	if interfaceName == "" {
-		flag.StringVar(&interfaceName, "interface", "wg-1", "Name of the WireGuard interface")
+		flag.StringVar(&interfaceName, "interface", "wg0", "Name of the WireGuard interface")
 	}
 	if generateAndSaveKeyTo == "" {
 		flag.StringVar(&generateAndSaveKeyTo, "generateAndSaveKeyTo", "", "Path to save generated private key")
@@ -335,15 +335,7 @@ func main() {
 		logger.Fatal("Failed to create client: %v", err)
 	}
 
-	if reachableAt != "" {
-		// Create WireGuard service
-		wgService, err := wg.NewWireGuardService(interfaceName, mtuInt, reachableAt, generateAndSaveKeyTo, client)
-		if err != nil {
-			logger.Fatal("Failed to create WireGuard service: %v", err)
-		}
-		defer wgService.Close()
-	}
-
+	var wgService *wg.WireGuardService
 	// Create TUN device and network stack
 	var tun tun.Device
 	var tnet *netstack.Net
@@ -351,6 +343,16 @@ func main() {
 	var pm *proxy.ProxyManager
 	var connected bool
 	var wgData WgData
+
+	if reachableAt != "" {
+		logger.Info("Sending reachableAt to server: %s", reachableAt)
+		// Create WireGuard service
+		wgService, err = wg.NewWireGuardService(interfaceName, mtuInt, reachableAt, generateAndSaveKeyTo, client)
+		if err != nil {
+			logger.Fatal("Failed to create WireGuard service: %v", err)
+		}
+		defer wgService.Close()
+	}
 
 	client.RegisterHandler("newt/terminate", func(msg websocket.WSMessage) {
 		logger.Info("Received terminate message")
@@ -419,7 +421,7 @@ func main() {
 public_key=%s
 allowed_ip=%s/32
 endpoint=%s
-persistent_keepalive_interval=5`, fixKey(privateKey.String()), fixKey(wgData.PublicKey), wgData.ServerIP, endpoint)
+persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(wgData.PublicKey), wgData.ServerIP, endpoint)
 
 		err = dev.IpcSet(config)
 		if err != nil {
@@ -439,6 +441,7 @@ persistent_keepalive_interval=5`, fixKey(privateKey.String()), fixKey(wgData.Pub
 		if err != nil {
 			// Handle complete failure after all retries
 			logger.Error("Failed to ping %s: %v", wgData.ServerIP, err)
+			fmt.Sprintf("%s", privateKey)
 		}
 
 		if !connected {
@@ -551,12 +554,14 @@ persistent_keepalive_interval=5`, fixKey(privateKey.String()), fixKey(wgData.Pub
 		logger.Debug("Public key: %s", publicKey)
 
 		err := client.SendMessage("newt/wg/register", map[string]interface{}{
-			"publicKey": publicKey.PublicKey(),
+			"publicKey": fmt.Sprintf("%s", publicKey),
 		})
 		if err != nil {
 			logger.Error("Failed to send registration message: %v", err)
 			return err
 		}
+
+		wgService.LoadRemoteConfig()
 
 		logger.Info("Sent registration message")
 		return nil
