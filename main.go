@@ -55,7 +55,7 @@ func fixKey(key string) string {
 	// Decode from base64
 	decoded, err := base64.StdEncoding.DecodeString(key)
 	if err != nil {
-		logger.Fatal("Error decoding base64:", err)
+		logger.Fatal("Error decoding base64")
 	}
 
 	// Convert to hex

@@ -18,7 +18,6 @@ import (
 
 var (
 	interfaceName string
-	listenAddr    string
 	mtuInt        int
 	lastReadings  = make(map[string]PeerReading)
 	mu            sync.Mutex
@@ -61,7 +60,6 @@ type WireGuardService struct {
 	key           wgtypes.Key
 	reachableAt   string
 	lastReadings  map[string]PeerReading
-	mu            sync.Mutex
 }
 
 func NewWireGuardService(interfaceName string, mtu int, reachableAt string, generateAndSaveKeyTo string, wsClient *websocket.Client) (*WireGuardService, error) {
@@ -70,7 +68,7 @@ func NewWireGuardService(interfaceName string, mtu int, reachableAt string, gene
 		return nil, fmt.Errorf("failed to create WireGuard client: %v", err)
 	}
 
-	key := wgtypes.Key{}
+	var key wgtypes.Key
 	// if generateAndSaveKeyTo is provided, generate a private key and save it to the file. if the file already exists, load the key from the file
 	if _, err := os.Stat(generateAndSaveKeyTo); os.IsNotExist(err) {
 		// generate a new private key
@@ -105,9 +103,9 @@ func NewWireGuardService(interfaceName string, mtu int, reachableAt string, gene
 	}
 
 	// Register websocket handlers
-	wsClient.RegisterHandler("wg/config/receive", service.handleConfig)
-	wsClient.RegisterHandler("wg/peer/add", service.handleAddPeer)
-	wsClient.RegisterHandler("wg/peer/remove", service.handleRemovePeer)
+	wsClient.RegisterHandler("newt/wg/receive-config", service.handleConfig)
+	wsClient.RegisterHandler("newt/wg/peer/add", service.handleAddPeer)
+	wsClient.RegisterHandler("newt/wg/peer/remove", service.handleRemovePeer)
 
 	// Register connect handler to initiate configuration
 	wsClient.OnConnect(service.loadRemoteConfig)
@@ -121,11 +119,11 @@ func (s *WireGuardService) Close() {
 }
 
 func (s *WireGuardService) loadRemoteConfig() error {
-	body := bytes.NewBuffer([]byte(fmt.Sprintf(`{"publicKey": "%s", "endpoint": "%s"}`, s.key.PublicKey().String(), s.reachableAt)))
+	body := bytes.NewBuffer([]byte(fmt.Sprintf(`{ "publicKey": "%s", "endpoint": "%s" }`, s.key.PublicKey().String(), s.reachableAt)))
 
 	go s.periodicBandwidthCheck()
 
-	err := s.client.SendMessage("wg/config/get", body)
+	err := s.client.SendMessage("newt/wg/get-config", body)
 	if err != nil {
 		return fmt.Errorf("failed to send config request: %v", err)
 	}
