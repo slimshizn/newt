@@ -291,7 +291,7 @@ func main() {
 		flag.StringVar(&logLevel, "log-level", "INFO", "Log level (DEBUG, INFO, WARN, ERROR, FATAL)")
 	}
 	if interfaceName == "" {
-		flag.StringVar(&interfaceName, "interface", "wg0", "Name of the WireGuard interface")
+		flag.StringVar(&interfaceName, "interface", "wg1", "Name of the WireGuard interface")
 	}
 	if generateAndSaveKeyTo == "" {
 		flag.StringVar(&generateAndSaveKeyTo, "generateAndSaveKeyTo", "", "Path to save generated private key")
