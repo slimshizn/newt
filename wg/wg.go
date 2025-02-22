@@ -11,6 +11,7 @@ import (
 	"github.com/fosrl/newt/logger"
 	"github.com/fosrl/newt/websocket"
 	"github.com/vishvananda/netlink"
+	"golang.org/x/exp/rand"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -78,23 +79,31 @@ func FindAvailableUDPPort(minPort, maxPort uint16) (uint16, error) {
 		return 0, fmt.Errorf("invalid port range: min=%d, max=%d", minPort, maxPort)
 	}
 
-	for port := minPort; port <= maxPort; port++ {
-		// Create the UDP address to test
+	// Create a slice of all ports in the range
+	portRange := make([]uint16, maxPort-minPort+1)
+	for i := range portRange {
+		portRange[i] = minPort + uint16(i)
+	}
+
+	// Fisher-Yates shuffle to randomize the port order
+	rand.Seed(uint64(time.Now().UnixNano()))
+	for i := len(portRange) - 1; i > 0; i-- {
+		j := rand.Intn(i + 1)
+		portRange[i], portRange[j] = portRange[j], portRange[i]
+	}
+
+	// Try each port in the randomized order
+	for _, port := range portRange {
 		addr := &net.UDPAddr{
 			IP:   net.ParseIP("127.0.0.1"),
 			Port: int(port),
 		}
-
-		// Attempt to create a UDP listener
 		conn, err := net.ListenUDP("udp", addr)
 		if err != nil {
 			continue // Port is in use or there was an error, try next port
 		}
-
-		// Close the connection immediately
 		_ = conn.SetDeadline(time.Now())
 		conn.Close()
-
 		return port, nil
 	}
 
@@ -150,6 +159,10 @@ func NewWireGuardService(interfaceName string, mtu int, reachableAt string, gene
 		stopHolepunch: make(chan struct{}),
 	}
 
+	if err := service.sendUDPHolePunch(host + ":21820"); err != nil {
+		logger.Error("Failed to send UDP hole punch: %v", err)
+	}
+
 	// start the UDP holepunch
 	go service.keepSendingUDPHolePunch(host)
 
@@ -199,6 +212,9 @@ func (s *WireGuardService) handleConfig(msg websocket.WSMessage) {
 		return
 	}
 	s.config = config
+
+	// stop the holepunch
+	close(s.stopHolepunch)
 
 	// Ensure the WireGuard interface and peers are configured
 	if err := s.ensureWireguardInterface(config); err != nil {
@@ -697,6 +713,8 @@ func (s *WireGuardService) sendUDPHolePunch(serverAddr string) error {
 	if err != nil {
 		return fmt.Errorf("failed to send UDP packet: %v", err)
 	}
+
+	logger.Info("Sent UDP hole punch to %s", serverAddr)
 
 	return nil
 }
