@@ -99,7 +99,6 @@ func NewWireGuardService(interfaceName string, mtu int, reachableAt string, gene
 }
 
 func (s *WireGuardService) Close() {
-	s.client.Close()
 	s.wgClient.Close()
 }
 
