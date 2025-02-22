@@ -344,10 +344,16 @@ func main() {
 	var connected bool
 	var wgData WgData
 
-	if reachableAt != "" {
-		logger.Info("Sending reachableAt to server: %s", reachableAt)
+	if generateAndSaveKeyTo != "" {
+		var host = endpoint
+		if strings.HasPrefix(host, "http://") {
+			host = strings.TrimPrefix(host, "http://")
+		} else if strings.HasPrefix(host, "https://") {
+			host = strings.TrimPrefix(host, "https://")
+		}
+
 		// Create WireGuard service
-		wgService, err = wg.NewWireGuardService(interfaceName, mtuInt, reachableAt, generateAndSaveKeyTo, endpoint, id, client)
+		wgService, err = wg.NewWireGuardService(interfaceName, mtuInt, reachableAt, generateAndSaveKeyTo, host, id, client)
 		if err != nil {
 			logger.Fatal("Failed to create WireGuard service: %v", err)
 		}
