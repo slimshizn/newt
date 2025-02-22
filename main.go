@@ -347,7 +347,7 @@ func main() {
 	if reachableAt != "" {
 		logger.Info("Sending reachableAt to server: %s", reachableAt)
 		// Create WireGuard service
-		wgService, err = wg.NewWireGuardService(interfaceName, mtuInt, reachableAt, generateAndSaveKeyTo, client)
+		wgService, err = wg.NewWireGuardService(interfaceName, mtuInt, reachableAt, generateAndSaveKeyTo, endpoint, id, client)
 		if err != nil {
 			logger.Fatal("Failed to create WireGuard service: %v", err)
 		}
