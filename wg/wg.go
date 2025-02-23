@@ -51,12 +51,12 @@ type WireGuardService struct {
 	wgClient      *wgctrl.Client
 	config        WgConfig
 	key           wgtypes.Key
-	reachableAt   string
 	newtId        string
 	lastReadings  map[string]PeerReading
 	mu            sync.Mutex
-	port          uint16
+	Port          uint16
 	stopHolepunch chan struct{}
+	host          string
 }
 
 // Add this type definition
@@ -113,7 +113,7 @@ func FindAvailableUDPPort(minPort, maxPort uint16) (uint16, error) {
 	return 0, fmt.Errorf("no available UDP ports found in range %d-%d", minPort, maxPort)
 }
 
-func NewWireGuardService(interfaceName string, mtu int, reachableAt string, generateAndSaveKeyTo string, host string, newtId string, wsClient *websocket.Client) (*WireGuardService, error) {
+func NewWireGuardService(interfaceName string, mtu int, generateAndSaveKeyTo string, host string, newtId string, wsClient *websocket.Client) (*WireGuardService, error) {
 	wgClient, err := wgctrl.New()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create WireGuard client: %v", err)
@@ -155,19 +155,12 @@ func NewWireGuardService(interfaceName string, mtu int, reachableAt string, gene
 		client:        wsClient,
 		wgClient:      wgClient,
 		key:           key,
-		reachableAt:   reachableAt,
 		newtId:        newtId,
 		lastReadings:  make(map[string]PeerReading),
-		port:          port,
+		Port:          port,
 		stopHolepunch: make(chan struct{}),
+		host:          host,
 	}
-
-	if err := service.sendUDPHolePunch(host + ":21820"); err != nil {
-		logger.Error("Failed to send UDP hole punch: %v", err)
-	}
-
-	// start the UDP holepunch
-	go service.keepSendingUDPHolePunch(host)
 
 	// Register websocket handlers
 	wsClient.RegisterHandler("newt/wg/receive-config", service.handleConfig)
@@ -185,7 +178,6 @@ func (s *WireGuardService) LoadRemoteConfig() error {
 
 	err := s.client.SendMessage("newt/wg/get-config", map[string]interface{}{
 		"publicKey": fmt.Sprintf("%s", s.key.PublicKey().String()),
-		"endpoint":  s.reachableAt,
 	})
 	if err != nil {
 		logger.Error("Failed to send registration message: %v", err)
@@ -216,9 +208,6 @@ func (s *WireGuardService) handleConfig(msg websocket.WSMessage) {
 	}
 	s.config = config
 
-	// stop the holepunch
-	// close(s.stopHolepunch)
-
 	// Ensure the WireGuard interface and peers are configured
 	if err := s.ensureWireguardInterface(config); err != nil {
 		logger.Error("Failed to ensure WireGuard interface: %v", err)
@@ -227,6 +216,13 @@ func (s *WireGuardService) handleConfig(msg websocket.WSMessage) {
 	if err := s.ensureWireguardPeers(config.Peers); err != nil {
 		logger.Error("Failed to ensure WireGuard peers: %v", err)
 	}
+
+	if err := s.sendUDPHolePunch(s.host + ":21820"); err != nil {
+		logger.Error("Failed to send UDP hole punch: %v", err)
+	}
+
+	// start the UDP holepunch
+	go s.keepSendingUDPHolePunch(s.host)
 }
 
 func (s *WireGuardService) ensureWireguardInterface(wgconfig WgConfig) error {
@@ -245,6 +241,17 @@ func (s *WireGuardService) ensureWireguardInterface(wgconfig WgConfig) error {
 		}
 	} else {
 		logger.Info("WireGuard interface %s already exists\n", s.interfaceName)
+
+		// get the exising wireguard port
+		device, err := s.wgClient.Device(s.interfaceName)
+		if err != nil {
+			return fmt.Errorf("failed to get device: %v", err)
+		}
+
+		// get the existing port
+		s.Port = uint16(device.ListenPort)
+		logger.Info("WireGuard interface %s already exists with port %d\n", s.interfaceName, s.Port)
+
 		return nil
 	}
 
@@ -273,7 +280,7 @@ func (s *WireGuardService) ensureWireguardInterface(wgconfig WgConfig) error {
 	}
 
 	// Use the service's fixed port instead of the config port
-	*config.ListenPort = int(s.port)
+	*config.ListenPort = int(s.Port)
 
 	// Create and configure the WireGuard interface
 	err = s.wgClient.ConfigureDevice(s.interfaceName, config)
@@ -390,6 +397,7 @@ func (s *WireGuardService) handleAddPeer(msg websocket.WSMessage) {
 
 	err = s.addPeer(peer)
 	if err != nil {
+		logger.Info("Error adding peer: %v", err)
 		return
 	}
 }
@@ -411,16 +419,18 @@ func (s *WireGuardService) addPeer(peer Peer) error {
 	}
 	// add keep alive using *time.Duration	 of 1 second
 	keepalive := time.Second
-	endpoint, err := net.ResolveUDPAddr("udp", peer.Endpoint)
-	if err != nil {
-		return fmt.Errorf("failed to resolve endpoint address: %w", err)
-	}
+	// endpoint, err := net.ResolveUDPAddr("udp", peer.Endpoint)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to resolve endpoint address: %w", err)
+	// }
+
+	// make the endpoint localhost to test
 
 	peerConfig := wgtypes.PeerConfig{
 		PublicKey:                   pubKey,
 		AllowedIPs:                  allowedIPs,
 		PersistentKeepaliveInterval: &keepalive,
-		Endpoint:                    endpoint,
+		// Endpoint:                    endpoint,
 	}
 
 	config := wgtypes.Config{
@@ -626,7 +636,7 @@ func (s *WireGuardService) sendUDPHolePunch(serverAddr string) error {
 
 	client := &network.PeerNet{
 		IP:     clientIP,
-		Port:   s.port,
+		Port:   s.Port,
 		NewtID: s.newtId,
 	}
 
@@ -647,27 +657,11 @@ func (s *WireGuardService) sendUDPHolePunch(serverAddr string) error {
 		return fmt.Errorf("failed to send UDP packet: %v", err)
 	}
 
-	// logger.Info("Sent UDP hole punch to %s", serverAddr)
-
-	// // Wait for response if needed
-	// response, err := network.RecvDataPacket(rawConn, server, client)
-	// if err != nil {
-	// 	if err, ok := err.(net.Error); ok && err.Timeout() {
-	// 		return fmt.Errorf("connection to %s timed out", serverAddr)
-	// 	}
-	// 	return fmt.Errorf("error receiving response: %v", err)
-	// }
-
-	// // Process response if needed
-	// if len(response) > 0 {
-	// 	logger.Info("Received response from server")
-	// }
-
 	return nil
 }
 
 func (s *WireGuardService) keepSendingUDPHolePunch(host string) {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
 	for {

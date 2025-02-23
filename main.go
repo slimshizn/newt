@@ -258,7 +258,6 @@ func main() {
 		logLevel             string
 		interfaceName        string
 		generateAndSaveKeyTo string
-		reachableAt          string
 	)
 
 	// if PANGOLIN_ENDPOINT, NEWT_ID, and NEWT_SECRET are set as environment variables, they will be used as default values
@@ -270,7 +269,6 @@ func main() {
 	logLevel = os.Getenv("LOG_LEVEL")
 	interfaceName = os.Getenv("INTERFACE")
 	generateAndSaveKeyTo = os.Getenv("GENERATE_AND_SAVE_KEY_TO")
-	reachableAt = os.Getenv("REACHABLE_AT")
 
 	if endpoint == "" {
 		flag.StringVar(&endpoint, "endpoint", "", "Endpoint of your pangolin server")
@@ -295,9 +293,6 @@ func main() {
 	}
 	if generateAndSaveKeyTo == "" {
 		flag.StringVar(&generateAndSaveKeyTo, "generateAndSaveKeyTo", "", "Path to save generated private key")
-	}
-	if reachableAt == "" {
-		flag.StringVar(&reachableAt, "reachableAt", "", "Endpoint of the http server to tell remote config about")
 	}
 
 	// do a --version check
@@ -353,7 +348,7 @@ func main() {
 		}
 
 		// Create WireGuard service
-		wgService, err = wg.NewWireGuardService(interfaceName, mtuInt, reachableAt, generateAndSaveKeyTo, host, id, client)
+		wgService, err = wg.NewWireGuardService(interfaceName, mtuInt, generateAndSaveKeyTo, host, id, client)
 		if err != nil {
 			logger.Fatal("Failed to create WireGuard service: %v", err)
 		}
@@ -467,6 +462,13 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 
 		if len(wgData.Targets.UDP) > 0 {
 			updateTargets(pm, "add", wgData.TunnelIP, "udp", TargetData{Targets: wgData.Targets.UDP})
+		}
+
+		// first make sure the wpgService has a port
+		if wgService != nil {
+			// add a udp proxy for localost and the wgService port
+			// TODO: make sure this port is not used in a target
+			pm.AddTarget("udp", wgData.TunnelIP, int(wgService.Port), fmt.Sprintf("localhost:%d", wgService.Port))
 		}
 
 		err = pm.Start()
