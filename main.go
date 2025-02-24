@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -340,6 +341,12 @@ func main() {
 	var wgData WgData
 
 	if generateAndSaveKeyTo != "" {
+		// make sure we are running on linux
+		if runtime.GOOS != "linux" {
+			logger.Fatal("Tunnel management is only supported on Linux right now!")
+			os.Exit(1)
+		}
+
 		var host = endpoint
 		if strings.HasPrefix(host, "http://") {
 			host = strings.TrimPrefix(host, "http://")
@@ -569,7 +576,9 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 			return err
 		}
 
-		wgService.LoadRemoteConfig()
+		if wgService != nil {
+			wgService.LoadRemoteConfig()
+		}
 
 		logger.Info("Sent registration message")
 		return nil
