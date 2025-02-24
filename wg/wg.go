@@ -419,18 +419,29 @@ func (s *WireGuardService) addPeer(peer Peer) error {
 	}
 	// add keep alive using *time.Duration	 of 1 second
 	keepalive := time.Second
-	// endpoint, err := net.ResolveUDPAddr("udp", peer.Endpoint)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to resolve endpoint address: %w", err)
-	// }
 
-	// make the endpoint localhost to test
+	var peerConfig wgtypes.PeerConfig
+	if peer.Endpoint != "" {
+		endpoint, err := net.ResolveUDPAddr("udp", peer.Endpoint)
+		if err != nil {
+			return fmt.Errorf("failed to resolve endpoint address: %w", err)
+		}
 
-	peerConfig := wgtypes.PeerConfig{
-		PublicKey:                   pubKey,
-		AllowedIPs:                  allowedIPs,
-		PersistentKeepaliveInterval: &keepalive,
-		// Endpoint:                    endpoint,
+		// make the endpoint localhost to test
+
+		peerConfig = wgtypes.PeerConfig{
+			PublicKey:                   pubKey,
+			AllowedIPs:                  allowedIPs,
+			PersistentKeepaliveInterval: &keepalive,
+			Endpoint:                    endpoint,
+		}
+	} else {
+		peerConfig = wgtypes.PeerConfig{
+			PublicKey:                   pubKey,
+			AllowedIPs:                  allowedIPs,
+			PersistentKeepaliveInterval: &keepalive,
+		}
+		logger.Info("Added peer with no endpoint!")
 	}
 
 	config := wgtypes.Config{
