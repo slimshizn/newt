@@ -214,6 +214,9 @@ func resolveDomain(domain string) (string, error) {
 		host = strings.TrimPrefix(host, "https://")
 	}
 
+	// if there are any trailing slashes, remove them
+	host = strings.TrimSuffix(host, "/")
+
 	// Lookup IP addresses
 	ips, err := net.LookupIP(host)
 	if err != nil {
@@ -353,6 +356,8 @@ func main() {
 		} else if strings.HasPrefix(host, "https://") {
 			host = strings.TrimPrefix(host, "https://")
 		}
+
+		host = strings.TrimSuffix(host, "/")
 
 		// Create WireGuard service
 		wgService, err = wg.NewWireGuardService(interfaceName, mtuInt, generateAndSaveKeyTo, host, id, client)
