@@ -292,6 +292,7 @@ func (c *Client) establishConnection() error {
 	// Add token to query parameters
 	q := u.Query()
 	q.Set("token", token)
+	q.Set("clientType", "newt")
 	u.RawQuery = q.Encode()
 
 	// Connect to WebSocket

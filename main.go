@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -21,6 +22,7 @@ import (
 	"github.com/fosrl/newt/logger"
 	"github.com/fosrl/newt/proxy"
 	"github.com/fosrl/newt/websocket"
+	"github.com/fosrl/newt/wg"
 
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
@@ -55,7 +57,7 @@ func fixKey(key string) string {
 	// Decode from base64
 	decoded, err := base64.StdEncoding.DecodeString(key)
 	if err != nil {
-		logger.Fatal("Error decoding base64:", err)
+		logger.Fatal("Error decoding base64")
 	}
 
 	// Convert to hex
@@ -213,6 +215,9 @@ func resolveDomain(domain string) (string, error) {
 		host = strings.TrimPrefix(host, "https://")
 	}
 
+	// if there are any trailing slashes, remove them
+	host = strings.TrimSuffix(host, "/")
+
 	// Lookup IP addresses
 	ips, err := net.LookupIP(host)
 	if err != nil {
@@ -246,16 +251,18 @@ func resolveDomain(domain string) (string, error) {
 }
 
 var (
-	endpoint     string
-	id           string
-	secret       string
-	mtu          string
-	mtuInt       int
-	dns          string
-	privateKey   wgtypes.Key
-	err          error
-	logLevel     string
-	updownScript string
+	endpoint             string
+	id                   string
+	secret               string
+	mtu                  string
+	mtuInt               int
+	dns                  string
+	privateKey           wgtypes.Key
+	err                  error
+	logLevel             string
+	updownScript         string
+	interfaceName        string
+	generateAndSaveKeyTo string
 )
 
 func main() {
@@ -267,6 +274,8 @@ func main() {
 	dns = os.Getenv("DNS")
 	logLevel = os.Getenv("LOG_LEVEL")
 	updownScript = os.Getenv("UPDOWN_SCRIPT")
+	interfaceName = os.Getenv("INTERFACE")
+	generateAndSaveKeyTo = os.Getenv("GENERATE_AND_SAVE_KEY_TO")
 
 	if endpoint == "" {
 		flag.StringVar(&endpoint, "endpoint", "", "Endpoint of your pangolin server")
@@ -288,6 +297,12 @@ func main() {
 	}
 	if updownScript == "" {
 		flag.StringVar(&updownScript, "updown", "", "Path to updown script to be called when targets are added or removed")
+	}
+	if interfaceName == "" {
+		flag.StringVar(&interfaceName, "interface", "wg1", "Name of the WireGuard interface")
+	}
+	if generateAndSaveKeyTo == "" {
+		flag.StringVar(&generateAndSaveKeyTo, "generateAndSaveKeyTo", "", "Path to save generated private key")
 	}
 
 	// do a --version check
@@ -325,6 +340,7 @@ func main() {
 		logger.Fatal("Failed to create client: %v", err)
 	}
 
+	var wgService *wg.WireGuardService
 	// Create TUN device and network stack
 	var tun tun.Device
 	var tnet *netstack.Net
@@ -332,6 +348,30 @@ func main() {
 	var pm *proxy.ProxyManager
 	var connected bool
 	var wgData WgData
+
+	if generateAndSaveKeyTo != "" {
+		// make sure we are running on linux
+		if runtime.GOOS != "linux" {
+			logger.Fatal("Tunnel management is only supported on Linux right now!")
+			os.Exit(1)
+		}
+
+		var host = endpoint
+		if strings.HasPrefix(host, "http://") {
+			host = strings.TrimPrefix(host, "http://")
+		} else if strings.HasPrefix(host, "https://") {
+			host = strings.TrimPrefix(host, "https://")
+		}
+
+		host = strings.TrimSuffix(host, "/")
+
+		// Create WireGuard service
+		wgService, err = wg.NewWireGuardService(interfaceName, mtuInt, generateAndSaveKeyTo, host, id, client)
+		if err != nil {
+			logger.Fatal("Failed to create WireGuard service: %v", err)
+		}
+		defer wgService.Close()
+	}
 
 	client.RegisterHandler("newt/terminate", func(msg websocket.WSMessage) {
 		logger.Info("Received terminate message")
@@ -420,6 +460,7 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 		if err != nil {
 			// Handle complete failure after all retries
 			logger.Error("Failed to ping %s: %v", wgData.ServerIP, err)
+			fmt.Sprintf("%s", privateKey)
 		}
 
 		if !connected {
@@ -439,6 +480,13 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 
 		if len(wgData.Targets.UDP) > 0 {
 			updateTargets(pm, "add", wgData.TunnelIP, "udp", TargetData{Targets: wgData.Targets.UDP})
+		}
+
+		// first make sure the wpgService has a port
+		if wgService != nil {
+			// add a udp proxy for localost and the wgService port
+			// TODO: make sure this port is not used in a target
+			pm.AddTarget("udp", wgData.TunnelIP, int(wgService.Port), fmt.Sprintf("localhost:%d", wgService.Port))
 		}
 
 		err = pm.Start()
@@ -537,6 +585,10 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 		if err != nil {
 			logger.Error("Failed to send registration message: %v", err)
 			return err
+		}
+
+		if wgService != nil {
+			wgService.LoadRemoteConfig()
 		}
 
 		logger.Info("Sent registration message")
