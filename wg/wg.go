@@ -14,6 +14,8 @@ import (
 	"github.com/fosrl/newt/network"
 	"github.com/fosrl/newt/websocket"
 	"github.com/vishvananda/netlink"
+	"golang.org/x/crypto/chacha20poly1305"
+	"golang.org/x/crypto/curve25519"
 	"golang.org/x/exp/rand"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/wgctrl"
@@ -57,6 +59,7 @@ type WireGuardService struct {
 	Port          uint16
 	stopHolepunch chan struct{}
 	host          string
+	serverPubKey  string
 }
 
 // Add this type definition
@@ -172,6 +175,10 @@ func NewWireGuardService(interfaceName string, mtu int, generateAndSaveKeyTo str
 
 func (s *WireGuardService) Close() {
 	s.wgClient.Close()
+}
+
+func (s *WireGuardService) SetServerPubKey(serverPubKey string) {
+	s.serverPubKey = serverPubKey
 }
 
 func (s *WireGuardService) LoadRemoteConfig() error {
@@ -662,13 +669,79 @@ func (s *WireGuardService) sendUDPHolePunch(serverAddr string) error {
 		NewtID: s.newtId,
 	}
 
-	// Send the packet using the raw connection
-	err = network.SendDataPacket(payload, rawConn, server, client)
+	// Convert payload to JSON
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %v", err)
+	}
+
+	// Encrypt the payload using the server's WireGuard public key
+	encryptedPayload, err := s.encryptPayload(payloadBytes)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt payload: %v", err)
+	}
+
+	// Send the encrypted packet using the raw connection
+	err = network.SendDataPacket(encryptedPayload, rawConn, server, client)
 	if err != nil {
 		return fmt.Errorf("failed to send UDP packet: %v", err)
 	}
 
 	return nil
+}
+
+// Add a new function to encrypt the payload
+func (s *WireGuardService) encryptPayload(payload []byte) (interface{}, error) {
+	// Generate an ephemeral keypair for this message
+	ephemeralPrivateKey, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate ephemeral private key: %v", err)
+	}
+	ephemeralPublicKey := ephemeralPrivateKey.PublicKey()
+
+	// Parse the server's public key
+	serverPubKey, err := wgtypes.ParseKey(s.serverPubKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse server public key: %v", err)
+	}
+
+	// Perform Diffie-Hellman key exchange
+	var serverPubKeyFixed [32]byte
+	copy(serverPubKeyFixed[:], serverPubKey[:])
+
+	var ephPrivKeyFixed [32]byte
+	copy(ephPrivKeyFixed[:], ephemeralPrivateKey[:])
+
+	var sharedSecret [32]byte
+	curve25519.ScalarMult(&sharedSecret, &ephPrivKeyFixed, &serverPubKeyFixed)
+
+	// Create an AEAD cipher using the shared secret
+	aead, err := chacha20poly1305.New(sharedSecret[:])
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AEAD cipher: %v", err)
+	}
+
+	// Generate a random nonce
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("failed to generate nonce: %v", err)
+	}
+
+	// Encrypt the payload
+	ciphertext := aead.Seal(nil, nonce, payload, nil)
+
+	// Prepare the final encrypted message
+	encryptedMsg := struct {
+		EphemeralPublicKey string `json:"ephemeralPublicKey"`
+		Nonce              []byte `json:"nonce"`
+		Ciphertext         []byte `json:"ciphertext"`
+	}{
+		EphemeralPublicKey: ephemeralPublicKey.String(),
+		Nonce:              nonce,
+		Ciphertext:         ciphertext,
+	}
+
+	return encryptedMsg, nil
 }
 
 func (s *WireGuardService) keepSendingUDPHolePunch(host string) {
