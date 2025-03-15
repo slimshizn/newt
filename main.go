@@ -398,7 +398,7 @@ func main() {
 			if err != nil {
 				// Handle complete failure after all retries
 				logger.Warn("Failed to ping %s: %v", wgData.ServerIP, err)
-				logger.Warn("HINT: Do you have UDP port 51280 (or the port in config.yml) open on your Pangolin server?")
+				logger.Warn("HINT: Do you have UDP port 51820 (or the port in config.yml) open on your Pangolin server?")
 			}
 			return
 		}
