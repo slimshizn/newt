@@ -597,6 +597,12 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 		return nil
 	})
 
+	client.OnTokenUpdate(func(token string) {
+		if wgService != nil {
+			wgService.SetToken(token)
+		}
+	})
+
 	// Connect to the WebSocket server
 	if err := client.Connect(); err != nil {
 		logger.Fatal("Failed to connect to server: %v", err)

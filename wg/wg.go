@@ -60,6 +60,7 @@ type WireGuardService struct {
 	stopHolepunch chan struct{}
 	host          string
 	serverPubKey  string
+	token         string
 }
 
 // Add this type definition
@@ -179,6 +180,10 @@ func (s *WireGuardService) Close() {
 
 func (s *WireGuardService) SetServerPubKey(serverPubKey string) {
 	s.serverPubKey = serverPubKey
+}
+
+func (s *WireGuardService) SetToken(token string) {
+	s.token = token
 }
 
 func (s *WireGuardService) LoadRemoteConfig() error {
@@ -624,6 +629,11 @@ func (s *WireGuardService) reportPeerBandwidth() error {
 }
 
 func (s *WireGuardService) sendUDPHolePunch(serverAddr string) error {
+
+	if s.serverPubKey == "" || s.token == "" {
+		return fmt.Errorf("server public key or token is not set")
+	}
+
 	// Parse server address
 	serverSplit := strings.Split(serverAddr, ":")
 	if len(serverSplit) < 2 {
@@ -665,8 +675,10 @@ func (s *WireGuardService) sendUDPHolePunch(serverAddr string) error {
 	// Create JSON payload
 	payload := struct {
 		NewtID string `json:"newtId"`
+		Token  string `json:"token"`
 	}{
 		NewtID: s.newtId,
+		Token:  s.token,
 	}
 
 	// Convert payload to JSON
@@ -690,7 +702,6 @@ func (s *WireGuardService) sendUDPHolePunch(serverAddr string) error {
 	return nil
 }
 
-// Add a new function to encrypt the payload
 func (s *WireGuardService) encryptPayload(payload []byte) (interface{}, error) {
 	// Generate an ephemeral keypair for this message
 	ephemeralPrivateKey, err := wgtypes.GeneratePrivateKey()
@@ -705,18 +716,18 @@ func (s *WireGuardService) encryptPayload(payload []byte) (interface{}, error) {
 		return nil, fmt.Errorf("failed to parse server public key: %v", err)
 	}
 
-	// Perform Diffie-Hellman key exchange
-	var serverPubKeyFixed [32]byte
-	copy(serverPubKeyFixed[:], serverPubKey[:])
-
+	// Use X25519 for key exchange (replacing deprecated ScalarMult)
 	var ephPrivKeyFixed [32]byte
 	copy(ephPrivKeyFixed[:], ephemeralPrivateKey[:])
 
-	var sharedSecret [32]byte
-	curve25519.ScalarMult(&sharedSecret, &ephPrivKeyFixed, &serverPubKeyFixed)
+	// Perform X25519 key exchange
+	sharedSecret, err := curve25519.X25519(ephPrivKeyFixed[:], serverPubKey[:])
+	if err != nil {
+		return nil, fmt.Errorf("failed to perform X25519 key exchange: %v", err)
+	}
 
 	// Create an AEAD cipher using the shared secret
-	aead, err := chacha20poly1305.New(sharedSecret[:])
+	aead, err := chacha20poly1305.New(sharedSecret)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AEAD cipher: %v", err)
 	}

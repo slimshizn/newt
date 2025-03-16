@@ -27,7 +27,8 @@ type Client struct {
 	isConnected       bool
 	reconnectMux      sync.RWMutex
 
-	onConnect func() error
+	onConnect     func() error
+	onTokenUpdate func(token string)
 }
 
 type ClientOption func(*Client)
@@ -43,6 +44,10 @@ func WithBaseURL(url string) ClientOption {
 
 func (c *Client) OnConnect(callback func() error) {
 	c.onConnect = callback
+}
+
+func (c *Client) OnTokenUpdate(callback func(token string)) {
+	c.onTokenUpdate = callback
 }
 
 // NewClient creates a new Newt client
@@ -269,6 +274,8 @@ func (c *Client) establishConnection() error {
 	if err != nil {
 		return fmt.Errorf("failed to get token: %w", err)
 	}
+
+	c.onTokenUpdate(token)
 
 	// Parse the base URL to determine protocol and hostname
 	baseURL, err := url.Parse(c.baseURL)
