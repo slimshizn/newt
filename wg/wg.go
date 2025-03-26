@@ -23,9 +23,8 @@ import (
 )
 
 type WgConfig struct {
-	ListenPort int    `json:"listenPort"`
-	IpAddress  string `json:"ipAddress"`
-	Peers      []Peer `json:"peers"`
+	IpAddress string `json:"ipAddress"`
+	Peers     []Peer `json:"peers"`
 }
 
 type Peer struct {
