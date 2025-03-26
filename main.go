@@ -414,7 +414,9 @@ func main() {
 			return
 		}
 
-		wgService.SetServerPubKey(wgData.PublicKey)
+		if wgService != nil {
+			wgService.SetServerPubKey(wgData.PublicKey)
+		}
 
 		logger.Info("Received: %+v", msg)
 		tun, tnet, err = netstack.CreateNetTUN(
