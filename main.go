@@ -490,7 +490,7 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 		if wgService != nil {
 			// add a udp proxy for localost and the wgService port
 			// TODO: make sure this port is not used in a target
-			pm.AddTarget("udp", wgData.TunnelIP, int(wgService.Port), fmt.Sprintf("localhost:%d", wgService.Port))
+			pm.AddTarget("udp", wgData.TunnelIP, int(wgService.Port), fmt.Sprintf("127.0.0.1:%d", wgService.Port))
 		}
 
 		err = pm.Start()
@@ -616,8 +616,21 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 
-	// Cleanup
 	dev.Close()
+
+	if wgService != nil {
+		wgService.Close()
+	}
+
+	if pm != nil {
+		pm.Stop()
+	}
+
+	if client != nil {
+		client.Close()
+	}
+	logger.Info("Exiting...")
+	os.Exit(0)
 }
 
 func parseTargetData(data interface{}) (TargetData, error) {
