@@ -53,7 +53,23 @@ func (l *Logger) log(level LogLevel, format string, args ...interface{}) {
 	if level < l.level {
 		return
 	}
-	timestamp := time.Now().Format("2006/01/02 15:04:05")
+
+	// Get timezone from environment variable or use local timezone
+	timezone := os.Getenv("LOGGER_TIMEZONE")
+	var location *time.Location
+	var err error
+
+	if timezone != "" {
+		location, err = time.LoadLocation(timezone)
+		if err != nil {
+			// If invalid timezone, fall back to local
+			location = time.Local
+		}
+	} else {
+		location = time.Local
+	}
+
+	timestamp := time.Now().In(location).Format("2006/01/02 15:04:05")
 	message := fmt.Sprintf(format, args...)
 	l.logger.Printf("%s: %s %s", level.String(), timestamp, message)
 }
