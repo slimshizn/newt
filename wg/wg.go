@@ -176,6 +176,10 @@ func NewWireGuardService(interfaceName string, mtu int, generateAndSaveKeyTo str
 
 func (s *WireGuardService) Close() {
 	s.wgClient.Close()
+	// Remove the WireGuard interface
+	if err := s.removeInterface(); err != nil {
+		logger.Error("Failed to remove WireGuard interface: %v", err)
+	}
 }
 
 func (s *WireGuardService) SetServerPubKey(serverPubKey string) {
@@ -188,8 +192,16 @@ func (s *WireGuardService) SetToken(token string) {
 
 func (s *WireGuardService) LoadRemoteConfig() error {
 
-	err := s.client.SendMessage("newt/wg/get-config", map[string]interface{}{
+	// get the exising wireguard port
+	device, err := s.wgClient.Device(s.interfaceName)
+	if err == nil {
+		s.Port = uint16(device.ListenPort)
+		logger.Info("WireGuard interface %s already exists with port %d\n", s.interfaceName, s.Port)
+	}
+
+	err = s.client.SendMessage("newt/wg/get-config", map[string]interface{}{
 		"publicKey": fmt.Sprintf("%s", s.key.PublicKey().String()),
+		"port":      s.Port,
 	})
 	if err != nil {
 		logger.Error("Failed to send registration message: %v", err)
@@ -884,4 +896,21 @@ func (s *WireGuardService) keepSendingUDPHolePunch(host string) {
 			}
 		}
 	}
+}
+
+func (s *WireGuardService) removeInterface() error {
+	// Remove the WireGuard interface
+	link, err := netlink.LinkByName(s.interfaceName)
+	if err != nil {
+		return fmt.Errorf("failed to get interface: %v", err)
+	}
+
+	err = netlink.LinkDel(link)
+	if err != nil {
+		return fmt.Errorf("failed to delete interface: %v", err)
+	}
+
+	logger.Info("WireGuard interface %s removed successfully", s.interfaceName)
+
+	return nil
 }
