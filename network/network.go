@@ -200,3 +200,99 @@ func parseForBPF(response []byte) (srcIP net.IP, srcPort uint16, dstPort uint16)
 	dstPort = binary.BigEndian.Uint16(response[22:24])
 	return
 }
+
+// SetupRawConnWithCustomBPF creates an ipv4 and udp RawConn with a custom BPF program
+// This allows sharing the port between WireGuard and the WGTester
+func SetupRawConnWithCustomBPF(server *Server, client *PeerNet, captureMagicHeader uint32) *ipv4.RawConn {
+	packetConn, err := net.ListenPacket("ip4:udp", client.IP.String())
+	if err != nil {
+		log.Fatalln("Error creating packetConn:", err)
+	}
+
+	rawConn, err := ipv4.NewRawConn(packetConn)
+	if err != nil {
+		log.Fatalln("Error creating rawConn:", err)
+	}
+
+	// Apply a BPF that allows capturing both WireGuard and tester packets
+	ApplyCustomBPF(rawConn, server, client, captureMagicHeader)
+
+	return rawConn
+}
+
+// ApplyCustomBPF constructs a simpler BPF program that should be more compatible
+// The previous filter might have been too complex for the kernel to accept
+func ApplyCustomBPF(rawConn *ipv4.RawConn, server *Server, client *PeerNet, captureMagicHeader uint32) {
+	const ipv4HeaderLen = 20
+	const udpHeaderLen = 8
+	// Magic header would be located after IP + UDP headers
+	const magicHeaderOffset = ipv4HeaderLen + udpHeaderLen
+
+	// Many BPF implementations have limitations on jump offsets and program complexity
+	// Let's create a simpler program that just looks for:
+	// 1. UDP Protocol
+	// 2. Destination port matching our listening port or source port matching our port
+	// 3. We'll handle the magic header check in our application code instead
+
+	// This creates a more basic filter that will be accepted by most kernels
+	bpfRaw, err := bpf.Assemble([]bpf.Instruction{
+		// Load IP Protocol field (at offset 9)
+		bpf.LoadAbsolute{Off: 9, Size: 1},
+
+		// Is it UDP? (17 is UDP protocol number)
+		bpf.JumpIf{Cond: bpf.JumpEqual, Val: 17, SkipFalse: 5, SkipTrue: 0},
+
+		// Load destination port (at IP header + 2)
+		bpf.LoadAbsolute{Off: ipv4HeaderLen + 2, Size: 2},
+
+		// Is it our port?
+		bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(client.Port), SkipFalse: 2, SkipTrue: 0},
+
+		// Accept packet
+		bpf.RetConstant{Val: 1<<(8*4) - 1},
+
+		// Not matching destination port, check source port
+		bpf.LoadAbsolute{Off: ipv4HeaderLen + 0, Size: 2},
+
+		// Is source port our port?
+		bpf.JumpIf{Cond: bpf.JumpEqual, Val: uint32(client.Port), SkipFalse: 1, SkipTrue: 0},
+
+		// Accept packet
+		bpf.RetConstant{Val: 1<<(8*4) - 1},
+
+		// Reject packet
+		bpf.RetConstant{Val: 0},
+	})
+
+	if err != nil {
+		log.Fatalln("Error assembling BPF:", err)
+	}
+
+	err = rawConn.SetBPF(bpfRaw)
+	if err != nil {
+		log.Fatalln("Error setting BPF:", err)
+	}
+}
+
+// These helper functions will make it easier to extract information from packets
+// ExtractUDPPayload extracts the UDP payload from a raw IP packet
+func ExtractUDPPayload(packet []byte) []byte {
+	if len(packet) < 28 { // IP header (20) + UDP header (8)
+		return nil
+	}
+	return packet[28:]
+}
+
+// ExtractIPAndPorts extracts source/dest IP and ports from a raw IP packet
+func ExtractIPAndPorts(packet []byte) (srcIP net.IP, srcPort uint16, dstIP net.IP, dstPort uint16) {
+	if len(packet) < 28 {
+		return nil, 0, nil, 0
+	}
+
+	srcIP = net.IP(packet[12:16])
+	dstIP = net.IP(packet[16:20])
+	srcPort = binary.BigEndian.Uint16(packet[20:22])
+	dstPort = binary.BigEndian.Uint16(packet[22:24])
+
+	return
+}

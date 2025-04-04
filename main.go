@@ -23,6 +23,7 @@ import (
 	"github.com/fosrl/newt/proxy"
 	"github.com/fosrl/newt/websocket"
 	"github.com/fosrl/newt/wg"
+	"github.com/fosrl/newt/wgtester"
 
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
@@ -442,6 +443,7 @@ func main() {
 	var pm *proxy.ProxyManager
 	var connected bool
 	var wgData WgData
+	var wgTesterServer *wgtester.Server
 
 	if generateAndSaveKeyTo != "" {
 		// make sure we are running on linux
@@ -465,6 +467,17 @@ func main() {
 			logger.Fatal("Failed to create WireGuard service: %v", err)
 		}
 		defer wgService.Close()
+
+		wgTesterServer = wgtester.NewServer("0.0.0.0", wgService.Port, id) // TODO: maybe make this the same ip of the wg server?
+		err := wgTesterServer.Start()
+		if err != nil {
+			logger.Error("Failed to start WireGuard tester server: %v", err)
+		} else {
+			logger.Info("WireGuard connection testing server started on port %d", wgService.Port)
+
+			// Make sure to stop the server on exit
+			defer wgTesterServer.Stop()
+		}
 	}
 
 	client.RegisterHandler("newt/terminate", func(msg websocket.WSMessage) {
@@ -709,6 +722,10 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 
 	if wgService != nil {
 		wgService.Close()
+	}
+
+	if wgTesterServer != nil {
+		wgTesterServer.Stop()
 	}
 
 	if pm != nil {
