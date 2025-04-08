@@ -31,7 +31,7 @@
 
             src = ./.;
 
-            vendorHash = "sha256-sTtiBBkZ9cuhWnrn2VG20kv4nzNFfdzP5p+ewESCjyM=";
+            vendorHash = "sha256-8VlT9cy2uNhQPiUpr1jJuQSgUR6TtlbQ+etran2Htxs=";
 
             meta = with pkgs.lib; {
               description = "A tunneling client for Pangolin";
