@@ -80,13 +80,20 @@ func NewFixedPortBind(port uint16) conn.Bind {
 	}
 }
 
+// find an available UDP port in the range [minPort, maxPort] and also the next port for the wgtester
 func FindAvailableUDPPort(minPort, maxPort uint16) (uint16, error) {
 	if maxPort < minPort {
 		return 0, fmt.Errorf("invalid port range: min=%d, max=%d", minPort, maxPort)
 	}
 
-	// Create a slice of all ports in the range
-	portRange := make([]uint16, maxPort-minPort+1)
+	// We need to check port+1 as well, so adjust the max port to avoid going out of range
+	adjustedMaxPort := maxPort - 1
+	if adjustedMaxPort < minPort {
+		return 0, fmt.Errorf("insufficient port range to find consecutive ports: min=%d, max=%d", minPort, maxPort)
+	}
+
+	// Create a slice of all ports in the range (excluding the last one)
+	portRange := make([]uint16, adjustedMaxPort-minPort+1)
 	for i := range portRange {
 		portRange[i] = minPort + uint16(i)
 	}
@@ -100,20 +107,35 @@ func FindAvailableUDPPort(minPort, maxPort uint16) (uint16, error) {
 
 	// Try each port in the randomized order
 	for _, port := range portRange {
-		addr := &net.UDPAddr{
+		// Check if port is available
+		addr1 := &net.UDPAddr{
 			IP:   net.ParseIP("127.0.0.1"),
 			Port: int(port),
 		}
-		conn, err := net.ListenUDP("udp", addr)
-		if err != nil {
+		conn1, err1 := net.ListenUDP("udp", addr1)
+		if err1 != nil {
 			continue // Port is in use or there was an error, try next port
 		}
-		_ = conn.SetDeadline(time.Now())
-		conn.Close()
+
+		// Check if port+1 is also available
+		addr2 := &net.UDPAddr{
+			IP:   net.ParseIP("127.0.0.1"),
+			Port: int(port + 1),
+		}
+		conn2, err2 := net.ListenUDP("udp", addr2)
+		if err2 != nil {
+			// The next port is not available, so close the first connection and try again
+			conn1.Close()
+			continue
+		}
+
+		// Both ports are available, close connections and return the first port
+		conn1.Close()
+		conn2.Close()
 		return port, nil
 	}
 
-	return 0, fmt.Errorf("no available UDP ports found in range %d-%d", minPort, maxPort)
+	return 0, fmt.Errorf("no available consecutive UDP ports found in range %d-%d", minPort, maxPort)
 }
 
 func NewWireGuardService(interfaceName string, mtu int, generateAndSaveKeyTo string, host string, newtId string, wsClient *websocket.Client) (*WireGuardService, error) {
@@ -408,6 +430,7 @@ func (s *WireGuardService) ensureWireguardPeers(peers []Peer) error {
 }
 
 func (s *WireGuardService) handleAddPeer(msg websocket.WSMessage) {
+	logger.Info("Received message: %v", msg.Data)
 	var peer Peer
 
 	jsonData, err := json.Marshal(msg.Data)
@@ -451,8 +474,6 @@ func (s *WireGuardService) addPeer(peer Peer) error {
 			return fmt.Errorf("failed to resolve endpoint address: %w", err)
 		}
 
-		// make the endpoint localhost to test
-
 		peerConfig = wgtypes.PeerConfig{
 			PublicKey:                   pubKey,
 			AllowedIPs:                  allowedIPs,
@@ -482,6 +503,7 @@ func (s *WireGuardService) addPeer(peer Peer) error {
 }
 
 func (s *WireGuardService) handleRemovePeer(msg websocket.WSMessage) {
+	logger.Info("Received message: %v", msg.Data)
 	// parse the publicKey from the message which is json { "publicKey": "asdfasdfl;akjsdf" }
 	type RemoveRequest struct {
 		PublicKey string `json:"publicKey"`
@@ -529,38 +551,34 @@ func (s *WireGuardService) removePeer(publicKey string) error {
 }
 
 func (s *WireGuardService) handleUpdatePeer(msg websocket.WSMessage) {
+	logger.Info("Received message: %v", msg.Data)
 	// Define a struct to match the incoming message structure with optional fields
 	type UpdatePeerRequest struct {
 		PublicKey  string   `json:"publicKey"`
 		AllowedIPs []string `json:"allowedIps,omitempty"`
 		Endpoint   string   `json:"endpoint,omitempty"`
 	}
-
 	jsonData, err := json.Marshal(msg.Data)
 	if err != nil {
 		logger.Info("Error marshaling data: %v", err)
 		return
 	}
-
 	var request UpdatePeerRequest
 	if err := json.Unmarshal(jsonData, &request); err != nil {
 		logger.Info("Error unmarshaling peer data: %v", err)
 		return
 	}
-
 	// First, get the current peer configuration to preserve any unmodified fields
 	device, err := s.wgClient.Device(s.interfaceName)
 	if err != nil {
 		logger.Info("Error getting WireGuard device: %v", err)
 		return
 	}
-
 	pubKey, err := wgtypes.ParseKey(request.PublicKey)
 	if err != nil {
 		logger.Info("Error parsing public key: %v", err)
 		return
 	}
-
 	// Find the existing peer configuration
 	var currentPeer *wgtypes.Peer
 	for _, p := range device.Peers {
@@ -569,21 +587,29 @@ func (s *WireGuardService) handleUpdatePeer(msg websocket.WSMessage) {
 			break
 		}
 	}
-
 	if currentPeer == nil {
 		logger.Info("Peer %s not found, cannot update", request.PublicKey)
 		return
 	}
-
 	// Create the update peer config
 	peerConfig := wgtypes.PeerConfig{
 		PublicKey:  pubKey,
 		UpdateOnly: true,
 	}
-
 	// Keep the default persistent keepalive of 1 second
 	keepalive := time.Second
 	peerConfig.PersistentKeepaliveInterval = &keepalive
+
+	// Handle Endpoint field special case
+	// If Endpoint is included in the request but empty, we want to remove the endpoint
+	// If Endpoint is not included, we don't modify it
+	endpointSpecified := false
+	for key := range msg.Data.(map[string]interface{}) {
+		if key == "endpoint" {
+			endpointSpecified = true
+			break
+		}
+	}
 
 	// Only update AllowedIPs if provided in the request
 	if request.AllowedIPs != nil && len(request.AllowedIPs) > 0 {
@@ -597,18 +623,10 @@ func (s *WireGuardService) handleUpdatePeer(msg websocket.WSMessage) {
 			allowedIPs = append(allowedIPs, *ipNet)
 		}
 		peerConfig.AllowedIPs = allowedIPs
+		peerConfig.ReplaceAllowedIPs = true
 		logger.Info("Updating AllowedIPs for peer %s", request.PublicKey)
-	}
-
-	// Handle Endpoint field special case
-	// If Endpoint is included in the request but empty, we want to remove the endpoint
-	// If Endpoint is not included, we don't modify it
-	endpointSpecified := false
-	for key := range msg.Data.(map[string]interface{}) {
-		if key == "endpoint" {
-			endpointSpecified = true
-			break
-		}
+	} else if endpointSpecified && request.Endpoint == "" {
+		peerConfig.ReplaceAllowedIPs = false
 	}
 
 	if endpointSpecified {
@@ -623,7 +641,6 @@ func (s *WireGuardService) handleUpdatePeer(msg websocket.WSMessage) {
 			logger.Info("Updating Endpoint for peer %s to %s", request.PublicKey, request.Endpoint)
 		} else {
 			// Request contained endpoint field but it was empty/null - remove endpoint
-			// To remove an endpoint in WireGuard, we set it to nil and specify ReplaceAllowedIPs
 			peerConfig.Endpoint = nil
 			logger.Info("Removing Endpoint for peer %s", request.PublicKey)
 		}
@@ -633,12 +650,10 @@ func (s *WireGuardService) handleUpdatePeer(msg websocket.WSMessage) {
 	config := wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{peerConfig},
 	}
-
 	if err := s.wgClient.ConfigureDevice(s.interfaceName, config); err != nil {
 		logger.Info("Error updating peer configuration: %v", err)
 		return
 	}
-
 	logger.Info("Peer %s updated successfully", request.PublicKey)
 }
 
