@@ -27,7 +27,7 @@
           default = self.packages.${system}.pangolin-newt;
           pangolin-newt = pkgs.buildGoModule {
             pname = "pangolin-newt";
-            version = "1.1.2";
+            version = "1.1.3";
 
             src = ./.;
 
