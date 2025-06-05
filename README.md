@@ -38,7 +38,7 @@ When Newt receives WireGuard control messages, it will use the information encod
 - `log-level` (optional): The log level to use. Default: INFO
 - `updown` (optional): A script to be called when targets are added or removed.
 - `tls-client-cert` (optional): Client certificate (p12 or pfx) for mTLS. See [mTLS](#mtls)
-- `docker-socket` (optional): Override the docker socket integration
+- `docker-socket` (optional): Override the Docker socket integration
 
 - Example:
 
