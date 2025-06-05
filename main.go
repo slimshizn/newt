@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fosrl/newt/docker"
 	"github.com/fosrl/newt/logger"
 	"github.com/fosrl/newt/proxy"
 	"github.com/fosrl/newt/websocket"
@@ -55,7 +56,7 @@ func fixKey(key string) string {
 	// Decode from base64
 	decoded, err := base64.StdEncoding.DecodeString(key)
 	if err != nil {
-		logger.Fatal("Error decoding base64:", err)
+		logger.Fatal("Error decoding base64: %v", err)
 	}
 
 	// Convert to hex
@@ -194,7 +195,7 @@ func monitorConnectionStatus(tnet *netstack.Net, serverIP string, client *websoc
 
 				// Tell the server we're back
 				err := client.SendMessage("newt/wg/register", map[string]interface{}{
-					"publicKey": fmt.Sprintf("%s", privateKey.PublicKey()),
+					"publicKey": privateKey.PublicKey().String(),
 				})
 
 				if err != nil {
@@ -351,6 +352,7 @@ var (
 	logLevel      string
 	updownScript  string
 	tlsPrivateKey string
+	dockerSocket  string
 )
 
 func main() {
@@ -363,6 +365,7 @@ func main() {
 	logLevel = os.Getenv("LOG_LEVEL")
 	updownScript = os.Getenv("UPDOWN_SCRIPT")
 	tlsPrivateKey = os.Getenv("TLS_CLIENT_CERT")
+	dockerSocket = os.Getenv("DOCKER_SOCKET")
 
 	if endpoint == "" {
 		flag.StringVar(&endpoint, "endpoint", "", "Endpoint of your pangolin server")
@@ -387,6 +390,9 @@ func main() {
 	}
 	if tlsPrivateKey == "" {
 		flag.StringVar(&tlsPrivateKey, "tls-client-cert", "", "Path to client certificate used for mTLS")
+	}
+	if dockerSocket == "" {
+		flag.StringVar(&dockerSocket, "docker-socket", "/var/run/docker.sock", "Path to Docker socket")
 	}
 
 	// do a --version check
@@ -498,7 +504,7 @@ func main() {
 public_key=%s
 allowed_ip=%s/32
 endpoint=%s
-persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(wgData.PublicKey), wgData.ServerIP, endpoint)
+persistent_keepalive_interval=5`, fixKey(privateKey.String()), fixKey(wgData.PublicKey), wgData.ServerIP, endpoint)
 
 		err = dev.IpcSet(config)
 		if err != nil {
@@ -626,12 +632,53 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 		}
 	})
 
+	// Register handler for Docker socket check
+	client.RegisterHandler("newt/socket/check", func(msg websocket.WSMessage) {
+		logger.Info("Received Docker socket check request")
+
+		// Check if Docker socket is available
+		isAvailable := docker.CheckSocket(dockerSocket)
+
+		// Send response back to server
+		err := client.SendMessage("newt/socket/status", map[string]interface{}{
+			"available":  isAvailable,
+			"socketPath": dockerSocket,
+		})
+		if err != nil {
+			logger.Error("Failed to send Docker socket check response: %v", err)
+		} else {
+			logger.Info("Docker socket check response sent: available=%t", isAvailable)
+		}
+	})
+
+	// Register handler for Docker container listing
+	client.RegisterHandler("newt/socket/fetch", func(msg websocket.WSMessage) {
+		logger.Info("Received Docker container fetch request")
+
+		// List Docker containers
+		containers, err := docker.ListContainers(dockerSocket)
+		if err != nil {
+			logger.Error("Failed to list Docker containers: %v", err)
+			return
+		}
+
+		// Send container list back to server
+		err = client.SendMessage("newt/socket/containers", map[string]interface{}{
+			"containers": containers,
+		})
+		if err != nil {
+			logger.Error("Failed to send Docker container list: %v", err)
+		} else {
+			logger.Info("Docker container list sent, count: %d", len(containers))
+		}
+	})
+
 	client.OnConnect(func() error {
 		publicKey := privateKey.PublicKey()
 		logger.Debug("Public key: %s", publicKey)
 
 		err := client.SendMessage("newt/wg/register", map[string]interface{}{
-			"publicKey": fmt.Sprintf("%s", publicKey),
+			"publicKey": publicKey.String(),
 		})
 		if err != nil {
 			logger.Error("Failed to send registration message: %v", err)
