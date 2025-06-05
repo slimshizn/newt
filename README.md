@@ -6,7 +6,6 @@ Newt is a fully user space [WireGuard](https://www.wireguard.com/) tunnel client
 
 Newt is used with Pangolin and Gerbil as part of the larger system. See documentation below:
 
--   [Installation Instructions](https://docs.fossorial.io)
 -   [Full Documentation](https://docs.fossorial.io)
 
 ## Preview
