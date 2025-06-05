@@ -38,6 +38,7 @@ When Newt receives WireGuard control messages, it will use the information encod
 - `log-level` (optional): The log level to use. Default: INFO
 - `updown` (optional): A script to be called when targets are added or removed.
 - `tls-client-cert` (optional): Client certificate (p12 or pfx) for mTLS. See [mTLS](#mtls)
+- `docker-socket` (optional): Override the docker socket integration
 
 - Example:
 
@@ -76,23 +77,16 @@ services:
         - --endpoint https://example.com
 ```
 
-Finally a basic systemd service:
+### Docker Socket Integration
 
-```
-[Unit]
-Description=Newt VPN Client
-After=network.target
+Newt can integrate with the Docker socket to provide remote inspection of Docker containers. This allows Pangolin to query and retrieve detailed information about containers running on the Newt client, including metadata, network configuration, port mappings, and more.
 
-[Service]
-ExecStart=/usr/local/bin/newt --id 31frd0uzbjvp721 --secret h51mmlknrvrwv8s4r1i210azhumt6isgbpyavxodibx1k2d6 --endpoint https://example.com
-Restart=always
-User=root
+**Configuration:**
 
-[Install]
-WantedBy=multi-user.target
-```
+- By default, Newt will look for the Docker socket at `/var/run/docker.sock`.
+- You can specify a custom socket path using the `--docker-socket` CLI argument or by setting the `DOCKER_SOCKET` environment variable.
 
-Make sure to `mv ./newt /usr/local/bin/newt`!
+If the Docker socket is not available or accessible, Newt will gracefully disable Docker integration and continue normal operation.
 
 ### Updown
 
