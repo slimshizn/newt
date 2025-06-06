@@ -400,9 +400,12 @@ func main() {
 
 	flag.Parse()
 
+	newtVersion := "Newt version replaceme"
 	if *version {
-		fmt.Println("Newt version replaceme")
+		fmt.Println(newtVersion)
 		os.Exit(0)
+	} else {
+		logger.Info(newtVersion)
 	}
 
 	logger.Init()
