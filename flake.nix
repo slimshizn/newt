@@ -2,7 +2,7 @@
   description = "newt - A tunneling client for Pangolin";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
   };
 
   outputs =
@@ -27,11 +27,11 @@
           default = self.packages.${system}.pangolin-newt;
           pangolin-newt = pkgs.buildGoModule {
             pname = "pangolin-newt";
-            version = "1.1.3";
+            version = "1.2.1";
 
             src = ./.;
 
-            vendorHash = "sha256-sTtiBBkZ9cuhWnrn2VG20kv4nzNFfdzP5p+ewESCjyM=";
+            vendorHash = "sha256-Yc5IXnShciek/bKkVezkAcaq47zGiZP8vUHFb9p09LI=";
 
             meta = with pkgs.lib; {
               description = "A tunneling client for Pangolin";
