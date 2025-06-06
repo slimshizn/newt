@@ -392,7 +392,7 @@ func main() {
 		flag.StringVar(&tlsPrivateKey, "tls-client-cert", "", "Path to client certificate used for mTLS")
 	}
 	if dockerSocket == "" {
-		flag.StringVar(&dockerSocket, "docker-socket", "/var/run/docker.sock", "Path to Docker socket")
+		flag.StringVar(&dockerSocket, "docker-socket", "", "Path to Docker socket (typically /var/run/docker.sock)")
 	}
 
 	// do a --version check
@@ -400,9 +400,12 @@ func main() {
 
 	flag.Parse()
 
+	newtVersion := "Newt version replaceme"
 	if *version {
-		fmt.Println("Newt version replaceme")
+		fmt.Println(newtVersion)
 		os.Exit(0)
+	} else {
+		logger.Info(newtVersion)
 	}
 
 	logger.Init()
@@ -636,6 +639,18 @@ persistent_keepalive_interval=5`, fixKey(privateKey.String()), fixKey(wgData.Pub
 	client.RegisterHandler("newt/socket/check", func(msg websocket.WSMessage) {
 		logger.Info("Received Docker socket check request")
 
+		if dockerSocket == "" {
+			logger.Info("Docker socket path is not set")
+			err := client.SendMessage("newt/socket/status", map[string]interface{}{
+				"available":  false,
+				"socketPath": dockerSocket,
+			})
+			if err != nil {
+				logger.Error("Failed to send Docker socket check response: %v", err)
+			}
+			return
+		}
+
 		// Check if Docker socket is available
 		isAvailable := docker.CheckSocket(dockerSocket)
 
@@ -654,6 +669,11 @@ persistent_keepalive_interval=5`, fixKey(privateKey.String()), fixKey(wgData.Pub
 	// Register handler for Docker container listing
 	client.RegisterHandler("newt/socket/fetch", func(msg websocket.WSMessage) {
 		logger.Info("Received Docker container fetch request")
+
+		if dockerSocket == "" {
+			logger.Info("Docker socket path is not set")
+			return
+		}
 
 		// List Docker containers
 		containers, err := docker.ListContainers(dockerSocket)
