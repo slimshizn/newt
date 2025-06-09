@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,8 +69,44 @@ func CheckSocket(socketPath string) bool {
 	return true
 }
 
+// IsWithinNewtNetwork checks if a provided target is within the newt network
+func IsWithinNewtNetwork(socketPath string, containerNameAsHostname bool, targetAddress string, targetPort int) (bool, error) {
+	containers, err := ListContainers(socketPath, containerNameAsHostname)
+	if err != nil {
+		return false, fmt.Errorf("failed to list Docker containers: %s", err)
+	}
+
+	// If we can find the passed hostname/ip in the networks or as the container name, it is valid and can add it
+	for _, c := range containers {
+		for _, network := range c.Networks {
+			//If the container name matches, check the ports being mapped too
+			if containerNameAsHostname {
+				if c.Name == targetAddress {
+					for _, port := range c.Ports {
+						if port.PublicPort == targetPort || port.PrivatePort == targetPort {
+							return true, nil
+						}
+					}
+				}
+			} else {
+				//If the ip address matches, check the ports being mapped too
+				if network.IPAddress == targetAddress {
+					for _, port := range c.Ports {
+						if port.PublicPort == targetPort || port.PrivatePort == targetPort {
+							return true, nil
+						}
+					}
+				}
+			}
+		}
+	}
+
+	combinedTargetAddress := targetAddress + ":" + strconv.Itoa(targetPort)
+	return false, fmt.Errorf("target address not within newt network: %s", combinedTargetAddress)
+}
+
 // ListContainers lists all Docker containers with their network information
-func ListContainers(socketPath string) ([]Container, error) {
+func ListContainers(socketPath string, containerNameAsHostname bool) ([]Container, error) {
 	// Use the provided socket path or default to standard location
 	if socketPath == "" {
 		socketPath = "/var/run/docker.sock"
@@ -88,6 +126,12 @@ func ListContainers(socketPath string) ([]Container, error) {
 	}
 	defer cli.Close()
 
+	// Get the newt container
+	newtContainer, err := getNewtContainer(ctx, cli)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list containers: %v", err)
+	}
+
 	// List containers
 	containers, err := cli.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
@@ -96,6 +140,12 @@ func ListContainers(socketPath string) ([]Container, error) {
 
 	var dockerContainers []Container
 	for _, c := range containers {
+		// Get container name (remove leading slash)
+		name := ""
+		if len(c.Names) > 0 {
+			name = strings.TrimPrefix(c.Names[0], "/")
+		}
+
 		// Convert ports
 		var ports []Port
 		for _, port := range c.Ports {
@@ -112,29 +162,32 @@ func ListContainers(socketPath string) ([]Container, error) {
 			ports = append(ports, dockerPort)
 		}
 
-		// Get container name (remove leading slash)
-		name := ""
-		if len(c.Names) > 0 {
-			name = strings.TrimPrefix(c.Names[0], "/")
-		}
-
 		// Get network information by inspecting the container
 		networks := make(map[string]Network)
 
-		// Inspect container to get detailed network information
+		// Inspect the container to get detailed network information
 		containerInfo, err := cli.ContainerInspect(ctx, c.ID)
 		if err != nil {
 			logger.Debug("Failed to inspect container %s for network info: %v", c.ID[:12], err)
 			// Continue without network info if inspection fails
 		} else {
+			// Only containers within the newt network will be returned
+			isInNewtNetwork := false
+
 			// Extract network information from inspection
 			if containerInfo.NetworkSettings != nil && containerInfo.NetworkSettings.Networks != nil {
 				for networkName, endpoint := range containerInfo.NetworkSettings.Networks {
+					// Determine if the current container is in the newt network
+					for _, newtNetwork := range newtContainer.NetworkSettings.Networks {
+						if !isInNewtNetwork {
+							isInNewtNetwork = endpoint.NetworkID == newtNetwork.NetworkID
+						}
+					}
+
 					dockerNetwork := Network{
 						NetworkID:           endpoint.NetworkID,
 						EndpointID:          endpoint.EndpointID,
 						Gateway:             endpoint.Gateway,
-						IPAddress:           endpoint.IPAddress,
 						IPPrefixLen:         endpoint.IPPrefixLen,
 						IPv6Gateway:         endpoint.IPv6Gateway,
 						GlobalIPv6Address:   endpoint.GlobalIPv6Address,
@@ -143,8 +196,20 @@ func ListContainers(socketPath string) ([]Container, error) {
 						Aliases:             endpoint.Aliases,
 						DNSNames:            endpoint.DNSNames,
 					}
+
+					// Don't set the IP address if container name is used as hostname
+					if !containerNameAsHostname {
+						dockerNetwork.IPAddress = endpoint.IPAddress
+					}
+
 					networks[networkName] = dockerNetwork
 				}
+			}
+
+			// Don't continue returning this container if not in the newt network(s)
+			if !isInNewtNetwork {
+				logger.Debug("container not found within the newt network, skipping: %s", name)
+				continue
 			}
 		}
 
@@ -163,4 +228,20 @@ func ListContainers(socketPath string) ([]Container, error) {
 	}
 
 	return dockerContainers, nil
+}
+
+func getNewtContainer(dockerContext context.Context, dockerClient *client.Client) (*container.InspectResponse, error) {
+	// Get newt hostname from the os
+	newtContainerName, err := os.Hostname()
+	if err != nil {
+		return nil, fmt.Errorf("failed to find newt hostname: %v", err)
+	}
+
+	// Get newt container from the docker socket
+	newtContainer, err := dockerClient.ContainerInspect(dockerContext, newtContainerName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find newt container: %v", err)
+	}
+
+	return &newtContainer, nil
 }

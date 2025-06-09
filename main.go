@@ -341,18 +341,20 @@ func resolveDomain(domain string) (string, error) {
 }
 
 var (
-	endpoint      string
-	id            string
-	secret        string
-	mtu           string
-	mtuInt        int
-	dns           string
-	privateKey    wgtypes.Key
-	err           error
-	logLevel      string
-	updownScript  string
-	tlsPrivateKey string
-	dockerSocket  string
+	endpoint                      string
+	id                            string
+	secret                        string
+	mtu                           string
+	mtuInt                        int
+	dns                           string
+	privateKey                    wgtypes.Key
+	err                           error
+	logLevel                      string
+	updownScript                  string
+	tlsPrivateKey                 string
+	dockerSocket                  string
+	dockerContainerAsHostname     string
+	dockerContainerAsHostnameBool bool
 )
 
 func main() {
@@ -366,6 +368,7 @@ func main() {
 	updownScript = os.Getenv("UPDOWN_SCRIPT")
 	tlsPrivateKey = os.Getenv("TLS_CLIENT_CERT")
 	dockerSocket = os.Getenv("DOCKER_SOCKET")
+	dockerContainerAsHostname = os.Getenv("DOCKER_CONTAINER_NAME_AS_HOSTNAME")
 
 	if endpoint == "" {
 		flag.StringVar(&endpoint, "endpoint", "", "Endpoint of your pangolin server")
@@ -394,6 +397,9 @@ func main() {
 	if dockerSocket == "" {
 		flag.StringVar(&dockerSocket, "docker-socket", "", "Path to Docker socket (typically /var/run/docker.sock)")
 	}
+	if dockerContainerAsHostname == "" {
+		flag.StringVar(&dockerContainerAsHostname, "docker-container-name-as-hostname", "false", "Use container name when hostname for networking (true or false)")
+	}
 
 	// do a --version check
 	version := flag.Bool("version", false, "Print the version")
@@ -416,6 +422,13 @@ func main() {
 	mtuInt, err = strconv.Atoi(mtu)
 	if err != nil {
 		logger.Fatal("Failed to parse MTU: %v", err)
+	}
+
+	// pase if to use hostname over ip address for network sent to pangolin
+	dockerContainerAsHostnameBool, err = strconv.ParseBool(dockerContainerAsHostname)
+	if err != nil {
+		logger.Info("Docker use container name cannot be parsed. Defaulting to 'false'")
+		dockerContainerAsHostnameBool = false
 	}
 
 	privateKey, err = wgtypes.GeneratePrivateKey()
@@ -676,7 +689,7 @@ persistent_keepalive_interval=5`, fixKey(privateKey.String()), fixKey(wgData.Pub
 		}
 
 		// List Docker containers
-		containers, err := docker.ListContainers(dockerSocket)
+		containers, err := docker.ListContainers(dockerSocket, dockerContainerAsHostnameBool)
 		if err != nil {
 			logger.Error("Failed to list Docker containers: %v", err)
 			return
@@ -760,12 +773,14 @@ func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto
 		}
 
 		if action == "add" {
-			target := parts[1] + ":" + parts[2]
+			targetAddress := parts[1]
+			targetPort, _ := strconv.Atoi(parts[2])
+			combinedAddress := targetAddress + ":" + parts[2]
 
 			// Call updown script if provided
-			processedTarget := target
+			processedTarget := combinedAddress
 			if updownScript != "" {
-				newTarget, err := executeUpdownScript(action, proto, target)
+				newTarget, err := executeUpdownScript(action, proto, combinedAddress)
 				if err != nil {
 					logger.Warn("Updown script error: %v", err)
 				} else if newTarget != "" {
@@ -783,8 +798,12 @@ func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto
 			}
 
 			// Add the new target
-			pm.AddTarget(proto, tunnelIP, port, processedTarget)
-
+			isWithinNewtNetwork, err := docker.IsWithinNewtNetwork(dockerSocket, dockerContainerAsHostnameBool, targetAddress, targetPort)
+			if !isWithinNewtNetwork {
+				logger.Error("Not adding target: %v", err)
+			} else {
+				pm.AddTarget(proto, tunnelIP, port, processedTarget)
+			}
 		} else if action == "remove" {
 			logger.Info("Removing target with port %d", port)
 
