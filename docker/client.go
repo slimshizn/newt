@@ -71,7 +71,8 @@ func CheckSocket(socketPath string) bool {
 
 // IsWithinNewtNetwork checks if a provided target is within the newt network
 func IsWithinNewtNetwork(socketPath string, containerNameAsHostname bool, targetAddress string, targetPort int) (bool, error) {
-	containers, err := ListContainers(socketPath, containerNameAsHostname)
+	// Always enforce network validation
+	containers, err := ListContainers(socketPath, true, containerNameAsHostname)
 	if err != nil {
 		return false, fmt.Errorf("failed to list Docker containers: %s", err)
 	}
@@ -106,7 +107,7 @@ func IsWithinNewtNetwork(socketPath string, containerNameAsHostname bool, target
 }
 
 // ListContainers lists all Docker containers with their network information
-func ListContainers(socketPath string, containerNameAsHostname bool) ([]Container, error) {
+func ListContainers(socketPath string, enforceNetworkValidation bool, containerNameAsHostname bool) ([]Container, error) {
 	// Use the provided socket path or default to standard location
 	if socketPath == "" {
 		socketPath = "/var/run/docker.sock"
@@ -207,7 +208,7 @@ func ListContainers(socketPath string, containerNameAsHostname bool) ([]Containe
 			}
 
 			// Don't continue returning this container if not in the newt network(s)
-			if !isInNewtNetwork {
+			if enforceNetworkValidation && !isInNewtNetwork {
 				logger.Debug("container not found within the newt network, skipping: %s", name)
 				continue
 			}
