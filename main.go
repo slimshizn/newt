@@ -830,7 +830,7 @@ func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto
 			}
 
 			// Add the new target
-			if dockerEnforceNetworkValidationBool {
+			if dockerSocket != "" && dockerEnforceNetworkValidationBool {
 				logger.Info("Enforcing docker network validation")
 
 				isWithinNewtNetwork, err := docker.IsWithinHostNetwork(dockerSocket, dockerContainerAsHostnameBool, targetAddress, targetPort)
