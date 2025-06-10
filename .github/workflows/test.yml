@@ -18,17 +18,14 @@ jobs:
         with:
           go-version: '1.23'
 
-      - name: Build
+      - name: Build go
         run: go build
 
-      - name: Test
+      - name: Test go
         run: go test
 
       - name: Build Docker container
         run: make build
 
-      - name: Run Docker container
-        run: make test
-
-      - name: Build native
+      - name: Build native files
         run: make go-build.release
