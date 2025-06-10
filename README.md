@@ -38,6 +38,8 @@ When Newt receives WireGuard control messages, it will use the information encod
 - `updown` (optional): A script to be called when targets are added or removed.
 - `tls-client-cert` (optional): Client certificate (p12 or pfx) for mTLS. See [mTLS](#mtls)
 - `docker-socket` (optional): Set the Docker socket to use the container discovery integration
+- `docker-container-name-as-hostname` (optional): Use the docker container name as the hostname rather then the IP of the container
+- `docker-enforce-network-validation` (optional): Validate the container target is on the same network as the newt process
 
 - Example:
 
@@ -85,6 +87,24 @@ Newt can integrate with the Docker socket to provide remote inspection of Docker
 You can specify the Docker socket path using the `--docker-socket` CLI argument or by setting the `DOCKER_SOCKET` environment variable. On most linux systems the socket is `/var/run/docker.sock`
 
 If the Docker socket is not available or accessible, Newt will gracefully disable Docker integration and continue normal operation.
+
+### Docker Container Name as Hostname
+
+When run as a Docker container, Newt by default will send the IP Address of the container. This feature will make it so you will be able to use the internal Docker DNS resolution, to be able to use the name of the container over the IP address.
+
+**Configuration:**
+
+This feature is `false` by default. It can be enabled via setting the `--docker-container-name-as-hostname` CLI argument or by setting the `DOCKER_CONTAINER_NAME_AS_HOSTNAME` environment variable.
+
+### Docker Enforce Network Validation
+
+When run as a Docker container, Newt can validate that the target being provided is on the same network as the Newt container and therefore is reachable. Validation will be carried out against either the hostname/IP Address and the Port number to ensure the running container is exposing the ports to Newt.
+
+**Configuration:**
+
+Validation is `false` by default. It can be enabled via setting the `--docker-enforce-network-validation` CLI argument or by setting the `DOCKER_ENFORCE_NETWORK_VALIDATION` environment variable.
+
+If validation is enforced and the Docker socket is enforced and the Docker socket is not available or accessible, Newt will **not** add the target as it cannot be verified.
 
 ### Updown
 
