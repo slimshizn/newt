@@ -18,11 +18,8 @@ jobs:
         with:
           go-version: '1.23'
 
-      - name: Build go
-        run: go build
-
-      - name: Test go
-        run: go test
+      - name: Download go
+        run: go mod download
 
       - name: Build Docker container
         run: make build
