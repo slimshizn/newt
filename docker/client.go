@@ -141,6 +141,9 @@ func ListContainers(socketPath string, enforceNetworkValidation bool, containerN
 
 	var dockerContainers []Container
 	for _, c := range containers {
+		// Short ID like docker ps
+		shortId := c.ID[:12]
+
 		// Get container name (remove leading slash)
 		name := ""
 		if len(c.Names) > 0 {
@@ -169,7 +172,7 @@ func ListContainers(socketPath string, enforceNetworkValidation bool, containerN
 		// Inspect the container to get detailed network information
 		containerInfo, err := cli.ContainerInspect(ctx, c.ID)
 		if err != nil {
-			logger.Debug("Failed to inspect container %s for network info: %v", c.ID[:12], err)
+			logger.Debug("Failed to inspect container %s (%s) for network info: %v", shortId, name, err)
 			// Continue without network info if inspection fails
 		} else {
 			// Only containers within the host container network will be returned
@@ -209,13 +212,13 @@ func ListContainers(socketPath string, enforceNetworkValidation bool, containerN
 
 			// Don't continue returning this container if not in the host container network(s)
 			if enforceNetworkValidation && !isInHostContainerNetwork {
-				logger.Debug("container not found within the host container network, skipping: %s", name)
+				logger.Debug("Container not found within the host container network, skipping: %s (%s)", shortId, name)
 				continue
 			}
 		}
 
 		dockerContainer := Container{
-			ID:       c.ID[:12], // Show short ID like docker ps
+			ID:       shortId,
 			Name:     name,
 			Image:    c.Image,
 			State:    c.State,
