@@ -28,4 +28,4 @@ jobs:
         run: make build
 
       - name: Build native files
-        run: make go-build.release
+        run: make go-build-release
