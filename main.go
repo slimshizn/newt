@@ -401,7 +401,7 @@ func main() {
 		flag.StringVar(&dockerSocket, "docker-socket", "", "Path to Docker socket (typically /var/run/docker.sock)")
 	}
 	if dockerContainerAsHostname == "" {
-		flag.StringVar(&dockerContainerAsHostname, "docker-container-name-as-hostname", "false", "Use container name when hostname for networking (true or false)")
+		flag.StringVar(&dockerContainerAsHostname, "docker-container-name-as-hostname", "false", "Use container name as hostname for networking (true or false)")
 	}
 	if dockerEnforceNetworkValidation == "" {
 		flag.StringVar(&dockerEnforceNetworkValidation, "docker-enforce-network-validation", "false", "Enforce validation of container on newt network (true or false)")
@@ -830,7 +830,7 @@ func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto
 			}
 
 			// Add the new target
-			if dockerSocket != "" && dockerEnforceNetworkValidationBool {
+			if dockerEnforceNetworkValidationBool {
 				logger.Info("Enforcing docker network validation")
 
 				isWithinNewtNetwork, err := docker.IsWithinHostNetwork(dockerSocket, dockerContainerAsHostnameBool, targetAddress, targetPort)
