@@ -69,8 +69,8 @@ func CheckSocket(socketPath string) bool {
 	return true
 }
 
-// IsWithinNewtNetwork checks if a provided target is within the newt network
-func IsWithinNewtNetwork(socketPath string, containerNameAsHostname bool, targetAddress string, targetPort int) (bool, error) {
+// IsWithinHostNetwork checks if a provided target is within the host container network
+func IsWithinHostNetwork(socketPath string, containerNameAsHostname bool, targetAddress string, targetPort int) (bool, error) {
 	// Always enforce network validation
 	containers, err := ListContainers(socketPath, true, containerNameAsHostname)
 	if err != nil {
@@ -103,7 +103,7 @@ func IsWithinNewtNetwork(socketPath string, containerNameAsHostname bool, target
 	}
 
 	combinedTargetAddress := targetAddress + ":" + strconv.Itoa(targetPort)
-	return false, fmt.Errorf("target address not within newt network: %s", combinedTargetAddress)
+	return false, fmt.Errorf("target address not within host container network: %s", combinedTargetAddress)
 }
 
 // ListContainers lists all Docker containers with their network information
@@ -127,10 +127,10 @@ func ListContainers(socketPath string, enforceNetworkValidation bool, containerN
 	}
 	defer cli.Close()
 
-	// Get the newt container
-	newtContainer, err := getNewtContainer(ctx, cli)
+	// Get the host container
+	hostContainer, err := getHostContainer(ctx, cli)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list containers: %v", err)
+		return nil, fmt.Errorf("failed to get host container: %v", err)
 	}
 
 	// List containers
@@ -172,16 +172,16 @@ func ListContainers(socketPath string, enforceNetworkValidation bool, containerN
 			logger.Debug("Failed to inspect container %s for network info: %v", c.ID[:12], err)
 			// Continue without network info if inspection fails
 		} else {
-			// Only containers within the newt network will be returned
-			isInNewtNetwork := false
+			// Only containers within the host container network will be returned
+			isInHostContainerNetwork := false
 
 			// Extract network information from inspection
 			if containerInfo.NetworkSettings != nil && containerInfo.NetworkSettings.Networks != nil {
 				for networkName, endpoint := range containerInfo.NetworkSettings.Networks {
-					// Determine if the current container is in the newt network
-					for _, newtNetwork := range newtContainer.NetworkSettings.Networks {
-						if !isInNewtNetwork {
-							isInNewtNetwork = endpoint.NetworkID == newtNetwork.NetworkID
+					// Determine if the current container is in the host container network
+					for _, hostContainerNetwork := range hostContainer.NetworkSettings.Networks {
+						if !isInHostContainerNetwork {
+							isInHostContainerNetwork = endpoint.NetworkID == hostContainerNetwork.NetworkID
 						}
 					}
 
@@ -207,9 +207,9 @@ func ListContainers(socketPath string, enforceNetworkValidation bool, containerN
 				}
 			}
 
-			// Don't continue returning this container if not in the newt network(s)
-			if enforceNetworkValidation && !isInNewtNetwork {
-				logger.Debug("container not found within the newt network, skipping: %s", name)
+			// Don't continue returning this container if not in the host container network(s)
+			if enforceNetworkValidation && !isInHostContainerNetwork {
+				logger.Debug("container not found within the host container network, skipping: %s", name)
 				continue
 			}
 		}
@@ -231,18 +231,18 @@ func ListContainers(socketPath string, enforceNetworkValidation bool, containerN
 	return dockerContainers, nil
 }
 
-func getNewtContainer(dockerContext context.Context, dockerClient *client.Client) (*container.InspectResponse, error) {
-	// Get newt hostname from the os
-	newtContainerName, err := os.Hostname()
+func getHostContainer(dockerContext context.Context, dockerClient *client.Client) (*container.InspectResponse, error) {
+	// Get hostname from the os
+	containerHostname, err := os.Hostname()
 	if err != nil {
-		return nil, fmt.Errorf("failed to find newt hostname: %v", err)
+		return nil, fmt.Errorf("failed to find hostname: %v", err)
 	}
 
-	// Get newt container from the docker socket
-	newtContainer, err := dockerClient.ContainerInspect(dockerContext, newtContainerName)
+	// Get host container from the docker socket
+	hostContainer, err := dockerClient.ContainerInspect(dockerContext, containerHostname)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find newt container: %v", err)
+		return nil, fmt.Errorf("failed to inspect host container: %v", err)
 	}
 
-	return &newtContainer, nil
+	return &hostContainer, nil
 }

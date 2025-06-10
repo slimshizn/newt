@@ -833,7 +833,7 @@ func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto
 			if dockerEnforceNetworkValidationBool {
 				logger.Info("Enforcing docker network validation")
 
-				isWithinNewtNetwork, err := docker.IsWithinNewtNetwork(dockerSocket, dockerContainerAsHostnameBool, targetAddress, targetPort)
+				isWithinNewtNetwork, err := docker.IsWithinHostNetwork(dockerSocket, dockerContainerAsHostnameBool, targetAddress, targetPort)
 				if !isWithinNewtNetwork {
 					logger.Error("Not adding target: %v", err)
 				} else {
