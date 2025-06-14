@@ -38,7 +38,6 @@ When Newt receives WireGuard control messages, it will use the information encod
 - `updown` (optional): A script to be called when targets are added or removed.
 - `tls-client-cert` (optional): Client certificate (p12 or pfx) for mTLS. See [mTLS](#mtls)
 - `docker-socket` (optional): Set the Docker socket to use the container discovery integration
-- `docker-container-name-as-hostname` (optional): Use the docker container name as the hostname rather then the IP of the container
 - `docker-enforce-network-validation` (optional): Validate the container target is on the same network as the newt process
 
 - Example:
@@ -88,17 +87,19 @@ You can specify the Docker socket path using the `--docker-socket` CLI argument 
 
 If the Docker socket is not available or accessible, Newt will gracefully disable Docker integration and continue normal operation.
 
-### Docker Container Name as Hostname
+#### Hostnames vs IPs
 
-When run as a Docker container, Newt by default will send the IP Address of the container. This feature will make it so you will be able to use the internal Docker DNS resolution, to be able to use the name of the container over the IP address.
-
-**Configuration:**
-
-This feature is `false` by default. It can be enabled via setting the `--docker-container-name-as-hostname` CLI argument or by setting the `DOCKER_CONTAINER_NAME_AS_HOSTNAME` environment variable.
+When the Docker Socket Integration is used, depending on the network which Newt is run with, will determine if the hostname (generally considered the container name) or the IP address of the container is sent to Pangolin. Here are some of the scenarios below to describe what to expect:
+- **Running in Network Mode 'host'**: IP addresses will be used
+- **Running in Network Mode 'bridge'**: IP addresses will be used
+- **Running in docker-compose without a network specification**: Docker compose creates a network for the compose by default so hostnames will be used
+- **Running on docker-compose with defined network**: Will use hostnames
 
 ### Docker Enforce Network Validation
 
 When run as a Docker container, Newt can validate that the target being provided is on the same network as the Newt container and therefore is reachable. Validation will be carried out against either the hostname/IP Address and the Port number to ensure the running container is exposing the ports to Newt.
+
+It is important to note that if the Newt container is run with a network mode of `host` that this feature will not work. Running in `host` mode causes the container to share its resources with the host machine, therefore making it so the container information cannot be retrieved to be able to carry out required validation
 
 **Configuration:**
 

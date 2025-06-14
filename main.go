@@ -353,8 +353,6 @@ var (
 	updownScript                       string
 	tlsPrivateKey                      string
 	dockerSocket                       string
-	dockerContainerAsHostname          string
-	dockerContainerAsHostnameBool      bool
 	dockerEnforceNetworkValidation     string
 	dockerEnforceNetworkValidationBool bool
 )
@@ -370,7 +368,6 @@ func main() {
 	updownScript = os.Getenv("UPDOWN_SCRIPT")
 	tlsPrivateKey = os.Getenv("TLS_CLIENT_CERT")
 	dockerSocket = os.Getenv("DOCKER_SOCKET")
-	dockerContainerAsHostname = os.Getenv("DOCKER_CONTAINER_NAME_AS_HOSTNAME")
 	dockerEnforceNetworkValidation = os.Getenv("DOCKER_ENFORCE_NETWORK_VALIDATION")
 
 	if endpoint == "" {
@@ -400,9 +397,6 @@ func main() {
 	if dockerSocket == "" {
 		flag.StringVar(&dockerSocket, "docker-socket", "", "Path to Docker socket (typically /var/run/docker.sock)")
 	}
-	if dockerContainerAsHostname == "" {
-		flag.StringVar(&dockerContainerAsHostname, "docker-container-name-as-hostname", "false", "Use container name as hostname for networking (true or false)")
-	}
 	if dockerEnforceNetworkValidation == "" {
 		flag.StringVar(&dockerEnforceNetworkValidation, "docker-enforce-network-validation", "false", "Enforce validation of container on newt network (true or false)")
 	}
@@ -412,7 +406,7 @@ func main() {
 
 	flag.Parse()
 
-	newtVersion := "Newt version replaceme"
+	newtVersion := "Newt version JB wip"
 	if *version {
 		fmt.Println(newtVersion)
 		os.Exit(0)
@@ -428,13 +422,6 @@ func main() {
 	mtuInt, err = strconv.Atoi(mtu)
 	if err != nil {
 		logger.Fatal("Failed to parse MTU: %v", err)
-	}
-
-	// pase if to use hostname over ip address for network sent to pangolin
-	dockerContainerAsHostnameBool, err = strconv.ParseBool(dockerContainerAsHostname)
-	if err != nil {
-		logger.Info("Docker use container name cannot be parsed. Defaulting to 'false'")
-		dockerContainerAsHostnameBool = false
 	}
 
 	// parse if we want to enforce container network validation
@@ -466,7 +453,6 @@ func main() {
 	// output env var values if set
 	logger.Debug("Endpoint: %v", endpoint)
 	logger.Debug("Log Level: %v", logLevel)
-	logger.Debug("Docker Container Name as Hostname: %v", dockerContainerAsHostnameBool)
 	logger.Debug("Docker Network Validation Enabled: %v", dockerEnforceNetworkValidationBool)
 	logger.Debug("TLS Private Key Set: %v", tlsPrivateKey != "")
 	if dns != "" {
@@ -721,7 +707,7 @@ persistent_keepalive_interval=5`, fixKey(privateKey.String()), fixKey(wgData.Pub
 		}
 
 		// List Docker containers
-		containers, err := docker.ListContainers(dockerSocket, dockerEnforceNetworkValidationBool, dockerContainerAsHostnameBool)
+		containers, err := docker.ListContainers(dockerSocket, dockerEnforceNetworkValidationBool)
 		if err != nil {
 			logger.Error("Failed to list Docker containers: %v", err)
 			return
@@ -829,17 +815,17 @@ func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto
 				}
 			}
 
-			// Add the new target
+			// If docker network validation is enabled
 			if dockerEnforceNetworkValidationBool {
-				logger.Info("Enforcing docker network validation")
-
-				isWithinNewtNetwork, err := docker.IsWithinHostNetwork(dockerSocket, dockerContainerAsHostnameBool, targetAddress, targetPort)
-				if !isWithinNewtNetwork {
-					logger.Error("Not adding target: %v", err)
+				// If the target address is within the host container network, the target will be added
+				isWithinHostContainerNetwork, err := docker.IsWithinHostNetwork(dockerSocket, targetAddress, targetPort)
+				if !isWithinHostContainerNetwork {
+					logger.Warn("Not adding target address: %v", err)
 				} else {
 					pm.AddTarget(proto, tunnelIP, port, processedTarget)
 				}
 			} else {
+				// If we're not enforcing network validation, just proceed with adding the target
 				pm.AddTarget(proto, tunnelIP, port, processedTarget)
 			}
 		} else if action == "remove" {
