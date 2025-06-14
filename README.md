@@ -92,8 +92,8 @@ If the Docker socket is not available or accessible, Newt will gracefully disabl
 When the Docker Socket Integration is used, depending on the network which Newt is run with, either the hostname (generally considered the container name) or the IP address of the container will be sent to Pangolin. Here are some of the scenarios where IPs or hostname of the container will be utilised:
 - **Running in Network Mode 'host'**: IP addresses will be used
 - **Running in Network Mode 'bridge'**: IP addresses will be used
-- **Running in docker-compose without a network specification**: Docker compose creates a network for the compose by default, will use hostnames
-- **Running on docker-compose with defined network**: Will use hostnames
+- **Running in docker-compose without a network specification**: Docker compose creates a network for the compose by default, hostnames will be used
+- **Running on docker-compose with defined network**: Hostnames will be used
 
 ### Docker Enforce Network Validation
 
