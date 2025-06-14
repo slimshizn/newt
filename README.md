@@ -89,23 +89,23 @@ If the Docker socket is not available or accessible, Newt will gracefully disabl
 
 #### Hostnames vs IPs
 
-When the Docker Socket Integration is used, depending on the network which Newt is run with, will determine if the hostname (generally considered the container name) or the IP address of the container is sent to Pangolin. Here are some of the scenarios below to describe what to expect:
+When the Docker Socket Integration is used, depending on the network which Newt is run with, either the hostname (generally considered the container name) or the IP address of the container will be sent to Pangolin. Here are some of the scenarios where IPs or hostname of the container will be utilised:
 - **Running in Network Mode 'host'**: IP addresses will be used
 - **Running in Network Mode 'bridge'**: IP addresses will be used
-- **Running in docker-compose without a network specification**: Docker compose creates a network for the compose by default so hostnames will be used
+- **Running in docker-compose without a network specification**: Docker compose creates a network for the compose by default, will use hostnames
 - **Running on docker-compose with defined network**: Will use hostnames
 
 ### Docker Enforce Network Validation
 
-When run as a Docker container, Newt can validate that the target being provided is on the same network as the Newt container and therefore is reachable. Validation will be carried out against either the hostname/IP Address and the Port number to ensure the running container is exposing the ports to Newt.
+When run as a Docker container, Newt can validate that the target being provided is on the same network as the Newt container and only return containers directly accessible by Newt. Validation will be carried out against either the hostname/IP Address and the Port number to ensure the running container is exposing the ports to Newt.
 
-It is important to note that if the Newt container is run with a network mode of `host` that this feature will not work. Running in `host` mode causes the container to share its resources with the host machine, therefore making it so the container information cannot be retrieved to be able to carry out required validation
+It is important to note that if the Newt container is run with a network mode of `host` that this feature will not work. Running in `host` mode causes the container to share its resources with the host machine, therefore making it so the specific host container information for Newt cannot be retrieved to be able to carry out network validation.
 
 **Configuration:**
 
 Validation is `false` by default. It can be enabled via setting the `--docker-enforce-network-validation` CLI argument or by setting the `DOCKER_ENFORCE_NETWORK_VALIDATION` environment variable.
 
-If validation is enforced and the Docker socket is enforced and the Docker socket is not available or accessible, Newt will **not** add the target as it cannot be verified.
+If validation is enforced and the Docker socket is available, Newt will **not** add the target as it cannot be verified. A warning will be presented in the Newt logs.
 
 ### Updown
 
