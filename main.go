@@ -406,7 +406,7 @@ func main() {
 
 	flag.Parse()
 
-	newtVersion := "Newt version JB wip"
+	newtVersion := "Newt version replaceme"
 	if *version {
 		fmt.Println(newtVersion)
 		os.Exit(0)
