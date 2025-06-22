@@ -75,7 +75,6 @@ func IsWithinHostNetwork(socketPath string, targetAddress string, targetPort int
 	// Always enforce network validation
 	containers, err := ListContainers(socketPath, true)
 	if err != nil {
-
 		return false, err
 	}
 
@@ -142,7 +141,7 @@ func ListContainers(socketPath string, enforceNetworkValidation bool) ([]Contain
 
 	hostContainer, err := getHostContainer(ctx, cli)
 	if enforceNetworkValidation && err != nil {
-		return nil, fmt.Errorf("network validation enforced, cannot validate due to: %v", err)
+		return nil, fmt.Errorf("network validation enforced, cannot validate due to: %w", err)
 	}
 
 	// We may not be able to get back host container in scenarios like running the container in network mode 'host'

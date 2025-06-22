@@ -792,7 +792,11 @@ func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto
 
 		if action == "add" {
 			targetAddress := parts[1]
-			targetPort, _ := strconv.Atoi(parts[2])
+			targetPort, err := strconv.Atoi(parts[2])
+			if err != nil {
+				logger.Info("Invalid target port: %s", parts[2])
+				continue
+			}
 			combinedAddress := targetAddress + ":" + parts[2]
 
 			// Call updown script if provided
@@ -807,7 +811,7 @@ func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto
 			}
 
 			// Only remove the specific target if it exists
-			err := pm.RemoveTarget(proto, tunnelIP, port)
+			err = pm.RemoveTarget(proto, tunnelIP, port)
 			if err != nil {
 				// Ignore "target not found" errors as this is expected for new targets
 				if !strings.Contains(err.Error(), "target not found") {
