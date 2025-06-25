@@ -127,42 +127,46 @@ func startPingCheck(tnet *netstack.Net, serverIP string, stopChan chan struct{})
 	go func() {
 		for {
 			select {
-			case <-ticker.C:
+				case <-ticker.C:
 				err := ping(tnet, serverIP)
 				if err != nil {
 					consecutiveFailures++
-					logger.Warn("Periodic ping failed (%d consecutive failures): %v",
-						consecutiveFailures, err)
+					logger.Warn("Periodic ping failed (%d consecutive failures): %v", consecutiveFailures, err)
 					logger.Warn("HINT: Do you have UDP port 51820 (or the port in config.yml) open on your Pangolin server?")
-
-					// Increase interval if we have consistent failures, with a maximum cap
+					// delete healthy file if failed 3 times
+					if consecutiveFailures >= 3 {
+						_ = os.Remove("/tmp/healthy")
+					}
+					// increase interval if it keeps failing
 					if consecutiveFailures >= 3 && currentInterval < maxInterval {
-						// Increase by 50% each time, up to the maximum
 						currentInterval = time.Duration(float64(currentInterval) * 1.5)
 						if currentInterval > maxInterval {
 							currentInterval = maxInterval
 						}
 						ticker.Reset(currentInterval)
-						logger.Info("Increased ping check interval to %v due to consecutive failures",
-							currentInterval)
+						logger.Info("Increased ping check interval to %v due to consecutive failures", currentInterval)
 					}
 				} else {
-					// On success, if we've backed off, gradually return to normal interval
+					// Write a healthy file if ping successfull
+					err := os.WriteFile("/tmp/healthy", []byte("ok"), 0644)
+					if err != nil {
+						logger.Warn("Failed to write health file: %v", err)
+					}
+					// Reset interval if we increased it
 					if currentInterval > initialInterval {
 						currentInterval = time.Duration(float64(currentInterval) * 0.8)
 						if currentInterval < initialInterval {
 							currentInterval = initialInterval
 						}
 						ticker.Reset(currentInterval)
-						logger.Info("Decreased ping check interval to %v after successful ping",
-							currentInterval)
+						logger.Info("Decreased ping check interval to %v after successful ping", currentInterval)
 					}
 					consecutiveFailures = 0
 				}
-			case <-stopChan:
+				case <-stopChan:
 				logger.Info("Stopping ping check")
 				return
-			}
+			}			
 		}
 	}()
 }
