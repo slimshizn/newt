@@ -115,7 +115,7 @@ func ping(tnet *netstack.Net, dst string) error {
 	return nil
 }
 
-func startPingCheck(tnet *netstack.Net, serverIP string, stopChan chan struct{}) {
+func startPingCheck(tnet *netstack.Net, serverIP string, stopChan chan struct{}, healthFile string) {
 	initialInterval := 10 * time.Second
 	maxInterval := 60 * time.Second
 	currentInterval := initialInterval
@@ -135,6 +135,11 @@ func startPingCheck(tnet *netstack.Net, serverIP string, stopChan chan struct{})
 						consecutiveFailures, err)
 					logger.Warn("HINT: Do you have UDP port 51820 (or the port in config.yml) open on your Pangolin server?")
 
+					// Only remove file if healthFile is set
+					if consecutiveFailures >= 3 && healthFile != "" {
+						_ = os.Remove(healthFile)
+					}
+
 					// Increase interval if we have consistent failures, with a maximum cap
 					if consecutiveFailures >= 3 && currentInterval < maxInterval {
 						// Increase by 50% each time, up to the maximum
@@ -147,6 +152,13 @@ func startPingCheck(tnet *netstack.Net, serverIP string, stopChan chan struct{})
 							currentInterval)
 					}
 				} else {
+					// Only write file if healthFile is set
+					if healthFile != "" {
+						err := os.WriteFile(healthFile, []byte("ok"), 0644)
+						if err != nil {
+							logger.Warn("Failed to write health file: %v", err)
+						}
+					}
 					// On success, if we've backed off, gradually return to normal interval
 					if currentInterval > initialInterval {
 						currentInterval = time.Duration(float64(currentInterval) * 0.8)
@@ -355,6 +367,7 @@ var (
 	dockerSocket                       string
 	dockerEnforceNetworkValidation     string
 	dockerEnforceNetworkValidationBool bool
+	healthFile                         string
 )
 
 func main() {
@@ -369,6 +382,7 @@ func main() {
 	tlsPrivateKey = os.Getenv("TLS_CLIENT_CERT")
 	dockerSocket = os.Getenv("DOCKER_SOCKET")
 	dockerEnforceNetworkValidation = os.Getenv("DOCKER_ENFORCE_NETWORK_VALIDATION")
+	healthFile = os.Getenv("HEALTH_FILE")
 
 	if endpoint == "" {
 		flag.StringVar(&endpoint, "endpoint", "", "Endpoint of your pangolin server")
@@ -399,6 +413,9 @@ func main() {
 	}
 	if dockerEnforceNetworkValidation == "" {
 		flag.StringVar(&dockerEnforceNetworkValidation, "docker-enforce-network-validation", "false", "Enforce validation of container on newt network (true or false)")
+	}
+	if healthFile == "" {
+		flag.StringVar(&healthFile, "health-file", "", "Path to health file (if unset, health file won’t be written)")
 	}
 
 	// do a --version check
@@ -560,7 +577,7 @@ persistent_keepalive_interval=5`, fixKey(privateKey.String()), fixKey(wgData.Pub
 		// as the pings will continue in the background
 		if !connected {
 			logger.Info("Starting ping check")
-			startPingCheck(tnet, wgData.ServerIP, pingStopChan)
+			startPingCheck(tnet, wgData.ServerIP, pingStopChan, healthFile)
 
 			// Start connection monitoring in a separate goroutine
 			go monitorConnectionStatus(tnet, wgData.ServerIP, client)
