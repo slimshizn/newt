@@ -353,19 +353,21 @@ func resolveDomain(domain string) (string, error) {
 }
 
 var (
-	endpoint      string
-	id            string
-	secret        string
-	mtu           string
-	mtuInt        int
-	dns           string
-	privateKey    wgtypes.Key
-	err           error
-	logLevel      string
-	updownScript  string
-	tlsPrivateKey string
-	dockerSocket  string
-	healthFile    string // NEW
+	endpoint      				string
+	id            				string
+	secret        				string
+	mtu           				string
+	mtuInt        				int
+	dns           				string
+	privateKey    				wgtypes.Key
+	err           				error
+	logLevel      				string
+	updownScript  				string
+	tlsPrivateKey 				string
+	dockerSocket  				string
+	dockerEnforceNetworkValidation     	string
+	dockerEnforceNetworkValidationBool 	bool
+	healthFile    				string // NEW
 )
 
 func main() {
@@ -379,6 +381,7 @@ func main() {
 	updownScript = os.Getenv("UPDOWN_SCRIPT")
 	tlsPrivateKey = os.Getenv("TLS_CLIENT_CERT")
 	dockerSocket = os.Getenv("DOCKER_SOCKET")
+	dockerEnforceNetworkValidation = os.Getenv("DOCKER_ENFORCE_NETWORK_VALIDATION")
 	healthFile = os.Getenv("HEALTH_FILE") // NEW
 
 	if endpoint == "" {
@@ -407,6 +410,9 @@ func main() {
 	}
 	if dockerSocket == "" {
 		flag.StringVar(&dockerSocket, "docker-socket", "", "Path to Docker socket (typically /var/run/docker.sock)")
+	}
+	if dockerEnforceNetworkValidation == "" {
+		flag.StringVar(&dockerEnforceNetworkValidation, "docker-enforce-network-validation", "false", "Enforce validation of container on newt network (true or false)")
 	}
 	// CLI flag for healthFile if not set by env
 	if healthFile == "" {
